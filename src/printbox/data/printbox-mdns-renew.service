@@ -1,0 +1,11 @@
+[Unit]
+Description=PrintBox mDNS 重新宣告（保持 <主机名>.local 与 printbox.local 长期可解析）
+After=avahi-daemon.service
+Requires=avahi-daemon.service
+
+[Service]
+Type=oneshot
+# 自动维护局域网发布：检查 AirPrint 是否在局域网可见，不可见则自动重新发布
+# （静态服务文件 + avahi 重启 + 必要时切换 avahi-publish 动态发布兜底）。
+# 用户无需每次手动上 WebUI 点“重新发布”——定时器每 15 分钟自动跑一次。
+ExecStart=/usr/local/bin/printbox mdns-check

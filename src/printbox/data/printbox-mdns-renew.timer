@@ -1,0 +1,12 @@
+[Unit]
+Description=PrintBox mDNS 重新宣告定时器
+Documentation=man:avahi-daemon(8)
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=15min
+Unit=printbox-mdns-renew.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,32 @@
+[[notice]]
+<div class="card">
+  <h2>Web 管理界面登录</h2>
+  <form method="post" action="/settings">
+    <label>管理员用户名</label>
+    <input type="text" name="admin_user" value="[[admin_user]]">
+    <label>新密码（留空表示不修改）</label>
+    <input type="password" name="admin_password" placeholder="留空则不修改">
+    <label>是否要求登录</label>
+    <select name="require_auth">
+      <option value="no" [[auth_no]]>不要求（仅局域网）</option>
+      <option value="yes" [[auth_yes]]>要求登录</option>
+    </select>
+    <p style="margin-top:16px"><button class="btn" type="submit">保存登录设置</button></p>
+  </form>
+</div>
+<div class="card">
+  <h2>运行日志（全部组件合并）</h2>
+  <p class="muted">已合并 web / printer / network / drivers / archive / init 全部日志（保存在 /var/log/printbox，断电不丢），无需切换类型。</p>
+  <p style="margin-top:10px">
+    <a class="btn" href="#" onclick="exportLog();return false;">导出全部日志（文本文件）</a>
+  </p>
+  <pre>[[log_text]]</pre>
+</div>
+<script>
+function exportLog(){
+  var a = document.createElement('a');
+  a.href = '/api/log?c=all&download=1';
+  a.download = 'printbox-all.log';
+  document.body.appendChild(a); a.click(); a.remove();
+}
+</script>

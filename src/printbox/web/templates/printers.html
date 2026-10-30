@@ -1,0 +1,68 @@
+[[notice]]
+<div class="card">
+  <h2>已配置打印机</h2>
+  [[printers_list]]
+  [[printers_actions]]
+  <div id="pr_notice" style="margin-top:10px"></div>
+  <p class="muted">将 USB 打印机接入小主机，点击"检测并添加"。系统会自动选择驱动并发布到局域网（AirPrint / IPP / Mopria）。</p>
+</div>
+<div class="card">
+  <h2>打印机发现状态</h2>
+  <div class="row">
+    <div class="kv"><span class="k">本机 IP</span><span class="v">[[disc_lan_ip]]</span></div>
+    <div class="kv"><span class="k">AirPrint / mDNS</span><span class="v">[[disc_airprint_status]]</span></div>
+    <div class="kv"><span class="k">WS-Discovery</span><span class="v">[[disc_wsdd_status]]</span></div>
+  </div>
+  <h3 style="margin-top:14px">局域网内打印机地址（IPP）</h3>
+  <ul>[[disc_ipp_list]]</ul>
+  <p style="margin-top:10px">
+    <button class="btn ghost" type="button" onclick="republishAirprint()">重新发布到局域网 (AirPrint/mDNS)</button>
+    <button class="btn ghost" type="button" onclick="detectPrinter()">重新检测打印机</button>
+  </p>
+  <details style="margin-top:14px">
+    <summary>本机 mDNS 自检输出</summary>
+    [[disc_browse]]
+  </details>
+</div>
+<div class="card">
+  <h2>各系统如何添加这台打印机</h2>
+  [[disc_guides]]
+</div>
+<div class="card">
+  <h2>打印机详情与设置</h2>
+  [[printer_select]]
+  [[meta]]
+</div>
+<div class="card">
+  <h2>默认打印机</h2>
+  [[default]]
+</div>
+<div class="card">
+  <h2>打印选项</h2>
+  <p class="muted">以下为该打印机驱动支持的可设置项（不同驱动暴露的选项不同；host-based 驱动可能较少）。保存后对所有打印任务生效。</p>
+  [[options]]
+  <hr style="margin:16px 0;border:0;border-top:1px solid var(--line)">
+  [[republish]]
+</div>
+
+<script>
+function postJSON(url, body, done){
+  fetch(url, {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: body})
+    .then(r=>r.json()).then(d=>{ if(done) done(d); }).catch(()=>{});
+}
+function showNotice(msg, ok){
+  var el = document.getElementById('pr_notice');
+  if(!el) return;
+  el.className = 'badge ' + (ok ? 'ok' : 'err');
+  el.textContent = msg;
+}
+function detectPrinter(){
+  postJSON('/api/detect', '', function(d){ showNotice(d.msg, d.ok); });
+}
+function testpage(){
+  postJSON('/api/testpage', '', function(d){ showNotice(d.msg, d.ok); });
+}
+function republishAirprint(){
+  postJSON('/api/republish', '', function(d){ showNotice(d.msg, d.ok); });
+}
+</script>

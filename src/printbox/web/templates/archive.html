@@ -1,0 +1,80 @@
+<div class="card">
+  <h2>打印文件归档</h2>
+  <p class="muted">每次打印的原始文件都会自动保存到本机，空间按磁盘容量自动计算；存满后自动删除最旧的文件（轮替），不会无限占用空间。</p>
+  <div class="row">
+    <div class="kv"><span class="k">归档状态</span><span class="v">[[enabled_text]]</span></div>
+    <div class="kv"><span class="k">归档目录</span><span class="v">[[dir]]</span></div>
+    <div class="kv"><span class="k">配额上限</span><span class="v">[[max_size_mb]] MB</span></div>
+    <div class="kv"><span class="k">已用空间</span><span class="v">[[used_mb]] MB</span></div>
+    <div class="kv"><span class="k">已保存文件数</span><span class="v">[[count]]</span></div>
+    <div class="kv"><span class="k">最近一次</span><span class="v">[[last_file]]</span></div>
+  </div>
+</div>
+<div class="card">
+  <h2>归档设置</h2>
+  <form method="post" action="/archive">
+    <label>开启打印文件归档</label>
+    <input type="checkbox" name="archive_enabled" [[enabled]]>
+    <label>占用磁盘比例（0.05~0.5，例如 0.25 = 用 25% 磁盘空间存打印文件）</label>
+    <input type="text" name="ratio" value="[[ratio]]" maxlength="6">
+    <label>最小配额（MB，磁盘过小时也至少保留这么多）</label>
+    <input type="text" name="min_mb" value="[[min_mb]]">
+    <label>最大配额（MB，封顶，默认 30720 = 30GB）</label>
+    <input type="text" name="cap_mb" value="[[cap_mb]]">
+    <p style="margin-top:16px"><button class="btn" type="submit">保存并应用</button>
+    <button class="btn danger" type="submit" name="act" value="clear">清空归档</button></p>
+  </form>
+</div>
+[[notice]]
+<div class="card">
+  <h2>打印历史</h2>
+  <p class="muted">显示本机保存的每一次打印记录。PDF / 图片 / 文本 / 网页等常见格式可在线预览
+  （点击「预览」会以全屏遮罩打开，同一时刻只能看一个，关闭后才能看下一个，避免同时占用资源）；
+  其它格式（如打印机原始数据流）提供下载。也可以一键「再次打印」，把原始文件重新发给打印机。</p>
+  <table>
+    <tr><th>时间</th><th>文件名</th><th>用户</th><th>格式</th><th>大小</th><th>预览</th><th>操作</th></tr>
+    <tbody id="hist_rows">[[hist_rows]]</tbody>
+  </table>
+  <p class="muted">共 <span id="hist_count">[[hist_count]]</span> 条记录（每 5 秒自动刷新）。</p>
+</div>
+
+<script>
+let _histTimer = null;
+function refreshHistory(){
+  fetch('/api/history').then(r=>r.json()).then(d=>{
+    const t=document.getElementById('hist_rows'); if(t)t.innerHTML=d.rows;
+    const c=document.getElementById('hist_count'); if(c)c.textContent=d.count;
+  }).catch(()=>{});
+}
+document.addEventListener('DOMContentLoaded', function(){
+  refreshHistory();
+  _histTimer = setInterval(refreshHistory, 5000);
+});
+</script>
+
+<div id="pvOverlay" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.92);z-index:9999;flex-direction:column;align-items:center;justify-content:center">
+  <div style="position:absolute;top:14px;right:18px;display:flex;gap:10px;align-items:center">
+    <span style="color:#cbd5e1;font-size:13px" id="pvHint">预览（关闭后可看下一个）</span>
+    <button class="btn danger" type="button" onclick="closePreview()">关闭 ✕</button>
+  </div>
+  <iframe id="pvFrame" style="width:92vw;height:86vh;border:0;background:#fff;border-radius:10px"></iframe>
+</div>
+
+<script>
+function openPreview(url){
+  var ov=document.getElementById('pvOverlay');
+  var fr=document.getElementById('pvFrame');
+  fr.src='about:blank';
+  fr.src=url;
+  ov.style.display='flex';
+  document.body.style.overflow='hidden';
+}
+function closePreview(){
+  var ov=document.getElementById('pvOverlay');
+  var fr=document.getElementById('pvFrame');
+  fr.src='about:blank';
+  ov.style.display='none';
+  document.body.style.overflow='';
+}
+document.addEventListener('keydown',function(e){ if(e.key==='Escape') closePreview(); });
+</script>

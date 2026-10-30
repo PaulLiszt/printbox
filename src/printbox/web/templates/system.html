@@ -1,0 +1,167 @@
+<div class="card">
+  <h2>硬件使用情况</h2>
+  <div id="sys_hw">[[hw]]</div>
+</div>
+<div class="card">
+  <h2>联网概览</h2>
+  <div class="row">
+    <div class="kv"><span class="k">主机名</span><span class="v">[[hostname]]</span></div>
+    <div class="kv" style="min-width:320px"><span class="k">当前上网网卡</span><span class="v">[[active_html]]</span></div>
+  </div>
+  [[notice]]
+  <p class="muted">无论插网线还是用 wpa_supplicant 手动连 WiFi，本页均读取真实状态；
+  网线（以太网）默认路由优先级始终高于 WiFi，便于故障时插网线接管。</p>
+</div>
+<div class="card">
+  <h2>网络参数</h2>
+  <div class="row">
+    <div class="kv"><span class="k">默认网关</span><span class="v">[[gateway]]</span></div>
+    <div class="kv"><span class="k">DNS 服务器</span><span class="v">[[dns]]</span></div>
+    <div class="kv"><span class="k">WiFi SSID</span><span class="v">[[wifi_ssid]]</span></div>
+  </div>
+  <h3 style="margin-top:16px">网络设置（默认 DHCP，可改为静态）</h3>
+  [[net_settings]]
+</div>
+<div class="card">
+  <h2>网卡详情</h2>
+  [[interfaces_html]]
+</div>
+<div class="card">
+  <h2>监听端口与联网进程</h2>
+  <div id="sys_listening">[[listening_html]]</div>
+  <p class="muted">端口说明：80=Web 管理、631=CUPS/IPP 打印、5353=mDNS、22=SSH、53=DNS、3702=WS-Discovery 发现。</p>
+</div>
+
+<div id="wifi_notice"></div>
+<div id="sys_wifi_connect">[[wifi_connect]]</div>
+<div id="sys_wifi_saved">[[wifi_saved]]</div>
+<div id="sys_wifi_avail">[[wifi_avail]]</div>
+
+<div class="card">
+  <h2>系统进程（按 CPU 占用 Top）</h2>
+  <div id="sys_proc">[[proc]]</div>
+</div>
+<div class="card">
+  <h2>登录用户</h2>
+  <div id="sys_users">[[users]]</div>
+</div>
+<script>
+let _sysTimer = null, _wifiTimer = null;
+function refreshSys(){
+  fetch('/api/system').then(r=>r.json()).then(d=>{
+    const h=document.getElementById('sys_hw'); if(h)h.innerHTML=d.hw;
+    const p=document.getElementById('sys_proc'); if(p)p.innerHTML=d.proc;
+    const u=document.getElementById('sys_users'); if(u)u.innerHTML=d.users;
+    const l=document.getElementById('sys_listening'); if(l)l.innerHTML=d.listening;
+  }).catch(()=>{});
+}
+// WiFi 扫描较重，仅刷新“已保存/附近网络”展示列表（不动连接表单，避免清掉正在输入的密码）
+function refreshWifi(){
+  fetch('/api/system').then(r=>r.json()).then(d=>{
+    const s=document.getElementById('sys_wifi_saved'); if(s)s.innerHTML=d.wifi_saved;
+    const a=document.getElementById('sys_wifi_avail'); if(a)a.innerHTML=d.wifi_avail;
+  }).catch(()=>{});
+}
+function postJSON(url, body, done){
+  fetch(url, {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: body})
+    .then(r=>r.json()).then(d=>{ if(done) done(d); }).catch(()=>{});
+}
+function showWifiNotice(msg, ok){
+  var el = document.getElementById('wifi_notice');
+  if(!el) return;
+  el.className = 'badge ' + (ok ? 'ok' : 'err');
+  el.textContent = msg;
+}
+function wifiConnect(e){
+  e.preventDefault();
+  var ssid = document.getElementById('wifi_ssid_input').value.trim();
+  var pw = document.getElementById('wifi_password_input').value;
+  if(!ssid){ showWifiNotice('请输入 SSID', false); return false; }
+  postJSON('/api/wifi', 'act=connect&ssid=' + encodeURIComponent(ssid) +
+           '&password=' + encodeURIComponent(pw), function(d){
+    showWifiNotice(d.msg, d.ok); refreshWifi();
+  });
+  return false;
+}
+function wifiAction(act, uuid){
+  postJSON('/api/wifi', 'act=' + encodeURIComponent(act) +
+           '&uuid=' + encodeURIComponent(uuid), function(d){
+    showWifiNotice(d.msg, d.ok); refreshWifi();
+  });
+}
+function wifiUp(uuid){ wifiAction('up', uuid); }
+function wifiDown(uuid){ wifiAction('down', uuid); }
+function fillWifiSsid(ssid){
+  var el = document.getElementById('wifi_ssid_input');
+  if(el){ el.value = ssid; el.focus(); }
+}
+// 切换网卡下拉时，从 /api/net_iface 拉取该网卡真实配置回填表单
+function netLoadIfaced(){
+  var sel = document.getElementById('net_iface_sel');
+  if(!sel) return;
+  var iface = sel.value;
+  fetch('/api/net_iface?iface=' + encodeURIComponent(iface))
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if(!d) return;
+      function set(n, v){
+        var e = document.querySelector('#net_cfg_form [name="'+n+'"]');
+        if(e){ e.value = (v === null || v === undefined ? '' : v); }
+      }
+      set('method_v4', d.method_v4);
+      set('address_v4', d.address_v4);
+      set('prefix_v4', d.prefix_v4 || d.netmask_v4);
+      set('gateway_v4', d.gateway_v4);
+      set('dns_v4', d.dns_v4);
+      set('method_v6', d.method_v6);
+      set('address_v6', d.address_v6);
+      set('prefix_v6', d.prefix_v6);
+      set('gateway_v6', d.gateway_v6);
+      set('dns_v6', d.dns_v6);
+    }).catch(function(){});
+}
+document.addEventListener('DOMContentLoaded', function(){
+  refreshSys();
+  refreshWifi();
+  netLoadIfaced();                                // 确保网络设置表单与当前网卡一致
+  _sysTimer = setInterval(refreshSys, 5000);      // 轻量：硬件/进程/用户/监听端口
+  _wifiTimer = setInterval(refreshWifi, 30000);   // 较重：WiFi 扫描，30s 一次避免频繁扫描
+});
+function exportLog(){
+  var a = document.createElement('a');
+  a.href = '/api/log?c=all&download=1';
+  a.download = 'printbox-all.log';
+  document.body.appendChild(a); a.click(); a.remove();
+}
+</script>
+<div class="card">
+  <h2>Web 管理界面登录</h2>
+  <form method="post" action="/settings">
+    <label>管理员用户名</label>
+    <input type="text" name="admin_user" value="[[admin_user]]">
+    <label>新密码（留空表示不修改）</label>
+    <input type="password" name="admin_password" placeholder="留空则不修改">
+    <label>是否要求登录</label>
+    <select name="require_auth">
+      <option value="no" [[auth_no]]>不要求（仅局域网）</option>
+      <option value="yes" [[auth_yes]]>要求登录</option>
+    </select>
+    <p style="margin-top:16px"><button class="btn" type="submit">保存登录设置</button></p>
+  </form>
+</div>
+<div class="card">
+  <h2>运行日志（全部组件合并）</h2>
+  <p class="muted">已合并 web / printer / network / drivers / archive / init 全部日志（保存在 /var/log/printbox，断电不丢），无需切换类型。</p>
+  <p style="margin-top:10px">
+    <a class="btn" href="#" onclick="exportLog();return false;">导出全部日志（文本文件）</a>
+  </p>
+  <pre>[[log_text]]</pre>
+</div>
+<div class="card">
+  <h2>更新</h2>
+  [[update]]
+</div>
+<div class="card">
+  <h2>电源</h2>
+  [[sysact]]
+</div>

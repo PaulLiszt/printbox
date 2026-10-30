@@ -1,0 +1,18 @@
+[Unit]
+Description=PrintBox Web 管理界面 (http://<本机IP> 或 http://<主机名>.local)
+After=network-online.target cups.service avahi-daemon.service
+Wants=network-online.target cups.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/printbox web
+Restart=on-failure
+RestartSec=3
+User=root
+# 允许以非 root 绑定 80 端口
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

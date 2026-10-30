@@ -1,0 +1,12 @@
+[Unit]
+Description=PrintBox 打印洪流防护定时器（每 10 秒扫描一次重复在途作业）
+After=cups.service
+
+[Timer]
+OnBootSec=20s
+OnUnitActiveSec=10s
+AccuracySec=5s
+Unit=printbox-guard.service
+
+[Install]
+WantedBy=timers.target

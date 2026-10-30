@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "printbox"
+version = "0.2.52"
+description = "Turn a minimal Linux box into a headless print server (CUPS / AirPrint / Mopria / WS-Discovery / WebUI / archive)."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+keywords = ["print", "cups", "airprint", "mopria", "print-server", "iot"]
+classifiers = [
+    "Operating System :: POSIX :: Linux",
+    "Topic :: System :: Systems Administration",
+    "Environment :: Console",
+    "Intended Audience :: System Administrators",
+]
+dependencies = []   # 纯标准库实现，无 Python 第三方依赖
+
+[project.urls]
+Homepage = "https://github.com/PaulLiszt/printbox"
+Repository = "https://github.com/PaulLiszt/printbox"
+
+[project.scripts]
+printbox = "printbox.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+packages = ["printbox"]
+
+[tool.setuptools.package-data]
+printbox = [
+    "web/templates/*.html",
+    "web/static/*.css",
+    "data/*.service",
+    "data/*.rules",
+    "data/*.json",
+]

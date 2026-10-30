@@ -1,0 +1,509 @@
+{
+  "project": "PrintBox",
+  "tagline": "把一台精简 Linux 主机变成无头打印服务器",
+  "description": "PrintBox 是一个 pip 分发的 Python 应用：在一台已装好 Debian/Ubuntu 等 systemd 发行版的小主机上，一条命令即可把它变成支持 AirPrint / Mopria / WS-Discovery 的局域网打印服务器，并提供中文 Web 管理界面。网络参数、主机名、系统账号等仍由底层 Linux 自行管理（与系统一致），PrintBox 只负责把打印服务栈跑起来。",
+  "homepage": "https://github.com/PaulLiszt/printbox",
+  "releases_url": "https://github.com/PaulLiszt/printbox/releases",
+  "features": [
+    "一键启动：sudo printbox init 后所有服务开机自启；start/stop/restart/status 随时管理",
+    "全协议无线/有线打印：CUPS + IPP Everywhere + AirPrint(iOS/macOS) + Mopria(Android/HarmonyOS) + WS-Discovery(Windows) + LPD",
+    "Web 管理界面（6 大板块）：概览(状态+打印任务+发现) / 打印机(打印机+打印设置) / 归档与历史 / 系统与网络 / 设置与日志 / 关于，局域网直接访问",
+    "自动安装驱动：探测到打印机后按厂商自动 apt 安装对应驱动包（HP / Brother / Samsung / Canon / Epson …）",
+    "打印文件归档：每次打印的原始文件自动保存，按磁盘容量自动算配额，装满轮替删除最旧文件",
+    "打印历史：常见格式(PDF/图片/文本/网页)可全屏预览、可一键再次打印",
+    "断电不丢参：配置落盘 /etc/printbox，日志落盘 /var/log/printbox",
+    "通用、健壮：所有修复不绑定特定硬件/系统；显式 Avahi 服务文件发布打印机，规避 cups-browsed 订阅风暴"
+  ],
+  "changelog": [
+    {
+      "version": "0.2.34",
+      "date": "2026-10-26",
+      "title": "回归修复 0.2.33：删非法 BrowseRemoteProtocols 指令 + 真正禁用 driverless 后端止崩",
+      "changes": [
+        "修正 0.2.33 引入的致命配置错误：0.2.33 在 cupsd.conf 追加了 BrowseRemoteProtocols none，但该指令在本机 CUPS（Debian trixie / CUPS 2.4）上并非合法指令，cupsd 解析失败、回退到默认配置（默认 Browsing On），结果『仍打不出 + iOS 仍双显』。0.2.34 彻底删除该非法指令，仅保留 Browsing Off + BrowseLocalProtocols none（两者均为本机 CUPS 合法指令）",
+        "真正根治 cupsd 每 ~15s 崩溃循环（Bad line from driverless）：Browsing Off 只能关掉 cupsd 自身广播，而 driverless 扫描是 cups-driverd 独立发起、与 Browsing 开关无关——所以 0.2.33 仅靠 Browsing Off 没能止住崩溃。0.2.34 新增 _disable_driverless_backend()，在 init/repair 时把 /usr/lib/cups/backend/driverless 与 dnssd 重命名为 .disabled 备份（幂等、可被包升级还原）。本机是固定 USB 打印机 + 显式 foo2xqx PPD，从不走 driverless/网络发现，禁用完全安全；cupsd 不再扫到自己的 AirPrint、不再产出畸形行、崩溃循环消失，打印恢复",
+        "升级即在盒上自愈：0.2.34 的 printbox repair / init 会重写合法 cupsd.conf（Browsing Off）并禁用 driverless 后端再重启 cups，跑一次 upgrade_box.sh 即可自动修复；升级后请跑 diag_box.sh 复核：CUPS STABILITY 段应显示 cupsd syntax: Syntax OK、BrowseRemoteProtocols present? no、driverless backend: disabled、crashes=0、Bad line=0",
+        "diag_box.sh 增强：新增 cupsd -t 语法校验、非法指令扫描、driverless/dnssd 后端状态显示，便于一眼确认修复是否生效"
+      ]
+    },
+    {
+      "version": "0.2.33",
+      "date": "2026-10-26",
+      "title": "（已回退）草稿：误加 BrowseRemoteProtocols + 仅 Browsing Off → 未能止崩",
+      "changes": [
+        "本版方向正确（关 Browsing、锁定 A4 默认、WebUI 自愈），但实现里误追加了非法指令 BrowseRemoteProtocols none，导致 cupsd 解析失败回退默认、问题未解决，已被 0.2.34 取代",
+        "A4 默认逻辑保留：patch_ppd_defaults 注入 *DefaultPageSize: A4 后用 lpadmin -o PageSize=A4 -o PageRegion=A4 把队列级默认也设为 A4，确保移动端默认 A4"
+      ]
+    },
+    {
+      "version": "0.2.32",
+      "date": "2026-10-23",
+      "title": "修 iOS 双显 + iOS/鸿蒙 无 A4 + repair 全自动收敛（无需手动 lpadmin -x）",
+      "changes": [
+        "修 iOS 看到「两台同名」打印机（鸿蒙/Win10 只看到 1 台）：根因是 AirPrint 静态服务文件里同时显式写了 <subtype>_universal._sub._ipp._tcp</subtype>，而 Avahi 对 TXT 含 image/urf 的 _ipp._tcp 服务会【自动合成】同名字的子类型，于是同一打印机被注册两次子类型、名字相同，iOS 按子类型浏览就列出两条。现去掉显式 <subtype>、只保留基础类型 _ipp._tcp，仅留 Avahi 自动合成的子类型，iOS 也只显示 1 台；Mopria/Windows 按基础类型发现不受影响。这是 0.2.31『iOS 双显』的真正根因（此前误判为设备型号/队列问题）",
+        "修 iOS/鸿蒙 纸张选项只有 美国信纸/法定/信封-10、没有 A4：根因是 0.2.31 的 A4 默认补丁只覆盖 foo2xqx 驱动，而本机实际驱动是 foo2zjs（A4 打印机），默认纸张停留在驱动自带的 Letter。现新增 patch_ppd_defaults()，对所有非 raw（带 PPD、能出纸）队列统一注入 *DefaultPageSize: A4 / *DefaultPageRegion: A4；若 PPD 的 *PageSize 选项本就无 A4（极少数极简 PPD）还会先补一个 A4 选项再设默认。仅在 A4 确为合法选项时才改，绝不破坏原 PPD 导致不出纸。添加打印机与 repair/republish 两条路径都会应用",
+        "修『升级后 WebUI 仍出现两台打印机、是否每次都要手动 lpadmin -x』：0.2.31 的 repair 先 prune（当时 URI 还空、抓不到重复队列）再 heal（补全 URI），导致不收敛、自愈线程反复把同一打印机建成两个队列。现 republish_airprint 改为 heal 之后再 prune 一次，且 main() 探测循环用 _uri_key 从源头按物理设备（优先 serial=）去重只建一个队列；并新增 main() 末尾清理无对应队列的残留 AirPrint 服务文件。效果：printbox repair 现在自动把多台收敛为 1 台，不再需要人工 lpadmin -x",
+        "foo2xqx 的 A4 默认注入改由 patch_ppd_defaults 统一处理（去掉其在 patch_foo2xqx_ppd 内的重复逻辑），移动端 JPEG(0 DPI) 空白页的 foomatic 包装补丁保留不变",
+        "说明：Win10/iOS/鸿蒙『测试页/打印无反应、队列卡作业 59/60/61』属 CUPS→USB 作业层问题，应用层日志不含 CUPS error_log 作业报错。需盒上执行 lpstat -o / tail /var/log/cups/error_log / lp -d hp_laserjet_p1505n_printbox /usr/share/cups/data/testprint 定位，见发布说明"
+      ]
+    },
+    {
+      "version": "0.2.31",
+      "date": "2026-10-23",
+      "title": "真修「WebUI 看到 3 台打印机」：去重按序列号归一 + 过滤 parallel:/ 伪设备 + 探测同设备只建一个队列",
+      "changes": [
+        "0.2.30 仍未解决「WebUI 看到 3 台」的根本原因：同一台 USB 打印机经 usb:// 与 hp:/usb 两个后端暴露，型号串分别是 `HP LaserJet P1505n` 与 `LaserJet P1505n`，旧 _uri_key 仅浅归一化（`HP/LaserJet%20P1505n` 与 `HP_LaserJet_P1505n` 归不到一起），导致被建成 hp_laserjet_p1505n_printbox 与 laserjet_p1505n_printbox 两个队列；外加 CUPS 无真实并口打印机也会列出 parallel:/dev/lp0 伪设备、被建成 print_printbox。_uri_key 现在优先用序列号（serial=KQ12ZY6 跨后端一致），否则折叠 / _ %20 空格并去厂商前缀，把同一物理设备归一为同一 key",
+        "add_printer 现在复用同物理设备已存在的队列名：即便探测到 usb:// 与 hp:/usb 两个 URI，也只对应一个 CUPS 队列，不再新增第二个名字",
+        "main() 探测循环新增 _uri_key 物理设备去重守卫，同一台打印机只 add 一次；并显式跳过 parallel:/、scsi:/ 这类 CUPS 即便无真实设备也会列出的伪后端（根因 print_printbox）",
+        "_is_real_printer 不再把 parallel:/ 与 scsi:/ 视为真实打印机；prune_phantom_printers 的本地后端分支对伪设备（即便出现在 lpinfo -v 中）直接删除，并按队列名前缀（print/printer/...）判定通用名幽灵队列（修复 print_printbox 因名字带 _printbox 后缀而漏判）；_keeper_score 偏好带厂商前缀(hp) 的规范名，去重时保留 hp_laserjet_p1505n_printbox 而非短名 laserjet_p1505n_printbox",
+        "效果：printbox repair 现在自动把 3 台收敛为 1 台 hp_laserjet_p1505n_printbox（删 laserjet_p1505n_printbox 与 print_printbox），WebUI 概览只显示一台、且只发布一个 AirPrint 实例"
+      ]
+    },
+    {
+      "version": "0.2.30",
+      "date": "2026-10-23",
+      "title": "修概览误报「未共享」+ 彻底清除自引用 DNS-SD 幽灵队列 + 自愈空 URI + WiFi 提示准确化",
+      "changes": [
+        "修 WebUI 概览对正确共享的队列仍误报「就绪 · 未共享」：根因是 get_printer_meta 用 `lpstat -p`（短格式）判断 shared，而短格式根本不含 shared 关键字，导致恒为 False。改为解析 /etc/cups/printers.conf 的 `Shared Yes/No`（最可靠），回退 `lpstat -l -p`（长格式含 `Shared: Yes`）。现在 repair 已 printer-is-shared=true 的队列会正确显示「就绪 · 已发布」",
+        "彻底清除自引用 DNS-SD 幽灵队列：laserjet_p1505n_printbox / print_printbox 这类队列的 URI 形如 ipp://<name>._ipp._tcp.local/（本机 AirPrint 被 CUPS dnssd 后端回发现成的自身设备），_dedupe 按设备 URI 归一时与真实 usb:// 队列 key 不同不会被合并。prune_phantom_printers 现新增「情形 4」直接删除这类自引用队列，并删除「本系统管理名(_printbox) 但 URI 为空、且本机已有有效打印机」的死队列。iOS/鸿蒙/Win10 现在只看到 1 台正确的 hp_laserjet_p1505n_printbox",
+        "修 repair 重启 CUPS 后个别队列 DeviceURI 短暂为空、导致 AirPrint 不发布、概览误报：republish_airprint 现在先 prune 再调用新增的 _heal_empty_uris()，从 lpinfo -v 重新定位同机型真实设备（usb:// 优先、跳过自引用 DNS-SD）写回空 URI，等价于 add_printer 的自愈，绝不丢打印机",
+        "WiFi 提示准确化：WebUI 原提示「未安装 NetworkManager」不准确——本系统部署时主动禁用 NM（managed=false + 停服务）改用 wpa_supplicant，nmcli 二进制仍在。现区分「未安装」与「已安装但被禁用」两种措辞，避免误导用户以为需要重装 NM（实际无需重装，wpa_supplicant 后端已能正常列出/连接/切换 WiFi）"
+      ]
+    },
+    {
+      "version": "0.2.29",
+      "date": "2026-10-23",
+      "title": "清理重复/脏打印机队列 + 修概览误报未配置URI + 修历史再次打印空白页 + 时间格式 + WiFi已连不显示",
+      "changes": [
+        "清理重复/脏打印机队列：prune_phantom_printers 现在按设备 URI 去重（usb:// 与 hp:/usb 归一化视为同一设备），仅保留一个队列（双后缀 _printbox_printbox 评分最低、规范名 _printbox 优先），并删除通用名幽灵队列（print/printer/printers）与双后缀脏队列。这解决了 iOS/鸿蒙/Win10 同时看到 hp_laserjet_p1505n_printbox、laserjet_p1505n_printbox、print_printbox 三台（后两者是早期误建/自愈 artifact，且出不了纸）的问题——现在只发布正确的那一台",
+        "修 iOS 出现「同一打印机变成两个」：根因是「静态 Avahi 服务文件（基础类型+子类型）」与「动态 avahi-publish 兜底（仅基础类型）」同时广播同一实例。_write_airprint_services 现在先停掉并禁用 printbox-airprint-publish.service，确保静态文件是唯一广播源",
+        "修 WebUI 概览把正确队列误报「未配置 URI（无法打印）」：get_printer_meta 改为优先直接解析 /etc/cups/printers.conf 的 DeviceURI（最可靠），失败再回退 lpstat -v；且各子步骤独立 try，任一失败只让该字段为空、不再整函数置空。队列实际有 URI（lp -d 能打印）就能正确显示「就绪·已发布」",
+        "修历史页「再次打印」点击后跳转空白页：表单 action 从 /history 改为 /archive（POST 处理器只处理 /archive），并重渲染归档页（含历史）；reprint 现在优先选「已配置 URI 且非 raw（带 PPD）」的队列，去掉对 URF/PWG 盲目加 -o raw（PPD 队列盲加 raw 会把原文件直接丢给后端出废页/报错）",
+        "作业提交时间改为 yyyy-mm-dd HH:MM:SS（24h）：不再显示 Thu Oct 22 这类本地化格式，解析 lpstat -o 的月/日/年/时间碎片拼成 ISO 时间，跨年（年份在末尾）也能正确解析",
+        "对齐概览页「取消该打印机全部任务」与「重启打印服务」两个按钮：取消按钮不再用带 margin 的内层 div 包裹，二者在同一 flex 行内垂直居中",
+        "修 WiFi「已保存的网络」不显示当前已连接的 SSID（如 MyHomeWiFi）：has_nm 改为检查 NetworkManager 是否真正运行（systemctl is-active）而非仅看 nmcli 是否存在；list_saved 无论后端都确保把当前已连接 SSID 作为 active 项纳入（不在配置里也补上），避免已连 WiFi 在列表里消失",
+        "部署提醒（沿用 0.2.27/0.2.28）：pip install 只换磁盘文件、不重载进程，升级后必须 printbox repair（或 systemctl restart printbox-web printbox-printer-hotplug）",
+        "版本号 0.2.28 → 0.2.29"
+      ]
+    },
+    {
+      "version": "0.2.28",
+      "date": "2026-10-22",
+      "title": "修 AirPrint 不广播（iOS/Win10 发现不了）+ 修队列被自愈线程反复改 raw",
+      "changes": [
+        "修 iOS / Win10 / 鸿蒙 完全发现不了打印机：AirPrint 的 Avahi 静态服务文件里子类型元素误写为 `<sub>`（非法），avahi-daemon 报 `didn't expect element <sub>` 直接丢弃整个文件、不广播任何 mDNS，导致 AirPrint 服务虽然「文件存在」却从未对外可见（printbox mdns-check 的「已可见」是误报——它没读到 avahi 实际拒绝）。正确元素名是 `<subtype>`，已改正；基础类型 _ipp._tcp 供 Mopria/Windows 按基础类型发现、子类型 _universal._sub._ipp._tcp 供 iOS/macOS，两者齐备互不冲突",
+        "修「队列反复被改、出不了纸 / Win10/iOS 测试页无响应」的根因：本机写出的 AirPrint 广播会被 CUPS 自己的 dnssd 后端在 `lpinfo -v` 里当成新设备 `ipp://<queue>._ipp._tcp.local/` 重新发现；detect / 自愈定时线程每轮都把它当「新打印机」加进来，因 IPP 优先级最高而抢在真实 USB 设备前被选中，而 IPP-everywhere 又建不出 PPD → 回退 raw → 造出 `<queue>_printbox_printbox` 双后缀 raw 队列、甚至把正确队列覆盖成 raw，表现为反复被改、收数据不出纸。已在 detect 阶段用 _is_self_dnssd() 精准跳过这类自引用设备（仅当 URI 的 DNS-SD 主机名正好等于本机已存在的队列名才跳过，不影响真实网络 IPP 打印机）；并给旧队列迁移加 `endswith('_printbox')` 守卫，杜绝双后缀脏队列",
+        "重要：升级后必须 `printbox repair`（或 `systemctl restart printbox-web printbox-printer-hotplug`）重载进程，否则新旧代码混杂、问题依旧",
+        "版本号 0.2.27 → 0.2.28"
+      ]
+    },
+    {
+      "version": "0.2.27",
+      "date": "2026-10-22",
+      "title": "统一大日志（无类型下拉/无刷新）+ wpa_supplicant WiFi 后端 + 明确部署后必须重载服务",
+      "changes": [
+        "运行日志页（系统页 / 设置页）改为统一展示全部组件日志：web / printer / network / drivers / archive / init 以 `===== 组件名 =====` 分段合并在同一视图，不再有「按组件下拉 + 切换刷新页面」的分类型模式（回应「不要区分日志类型、做成统一大日志、切换会刷新页面」）。各组件默认取最近 200 行合并，刷新页面时整段重渲（非整页重载），无类型切换",
+        "导出按钮改为一键下载合并日志 printbox-all.log（GET /api/log?c=all&download=1，serve_log_download 的 c=all 分支已支持），文件名固定 printbox-all.log，不再按组件分别导出",
+        "重要部署须知（回应「改了却看不到效果」）：pip install 只替换磁盘上的文件，**不会重载正在运行的进程**。升级后必须 `printbox repair`（其 [2/3] 会 `systemctl restart printbox-web` 等）或显式 `systemctl restart printbox-web printbox-printer-hotplug`，否则 WebUI 仍是旧代码——这正是 0.2.26 部署后看似「没生效」的根因（旧 0.2.25 进程在内存里持续把队列重置为 raw、且 Web 仍按旧模板渲染）",
+        "WiFi 连接管理补全（回应「本机未装 NetworkManager，页面只剩安装提示、无法真正连/切 WiFi」）：新增 wpa_supplicant 后端，作为 NM 缺失时的自动降级路径。WebUI 的「网络」页不再只在有 NM 时才渲染连接表单，而是始终渲染「连接到 WiFi / 已保存的网络 / 附近网络」三块；无 NM 时顶部给一行提示「未安装 NetworkManager，当前由 wpa_supplicant 管理 WiFi（仅影响无线，不动以太网/SSH）」，其余功能照常可用。后端按 has_nm() 自动分流：current_ssid/list_saved/connect/connect_saved/move/forget 全部新增 _wpa 实现，直接读写 /etc/wpa_supplicant/wpa_supplicant-<iface>.conf 并启用 wpa_supplicant@<iface> 单元 + dhclient/udhcpc/dhcpcd 取 IP。该方案只碰无线接口，不影响以太网与 SSH 连接，符合「不要因为加 WiFi 管理而把有线/SSH 搞断」的要求。注意：Debian 默认没有 wpa_supplicant@.service 模板单元，若无该单元会回退为直接后台运行 wpa_supplicant（即时生效，但不经 systemd 托管、重启不持久），盒上可先 `apt install wpasupplicant isc-dhcp-client` 验证",
+        "版本号 0.2.26 → 0.2.27"
+      ]
+    },
+    {
+      "version": "0.2.26",
+      "date": "2026-10-22",
+      "title": "修「未配置 URI / raw 队列不发布」复发 + 日志一键全量导出",
+      "changes": [
+        "修打印机「设备 URI 为空 / 未配置 URI（无法打印）」与由此引发的 AirPrint 不发布：根因是 lpinfo 在 CUPS 刚重启等时序窗口会瞬时返回空机型字段，_parse_simple 之前只拿到 (uri, '')，pick_driver 在无机型且非 ipp URI 时回退到 raw，raw 队列无 PPD 既不出纸也不会被发布到局域网。现新增 _model_from_uri(uri) 从 URI 内嵌机型（如 usb://HP/LaserJet%20P1505n）反推机型，_parse_simple 据此给 pick_driver 喂真实机型，从源头杜绝「空 URI 队列」与 raw 回退；并加固 _extract_uri 去掉尾随的 \"描述\" 字段（某些 lpinfo 输出形如 `uri \"desc\"`），避免描述泄漏进 URI。该修复与 0.2.23 的 _maybe_repoint_uri（空 URI 自动写回正确 URI）形成双保险",
+        "日志导出改为一键全量：WebUI「运行日志」页下拉新增「全部」选项，导出时把所有组件（web/printer/network/drivers/archive/init）日志合并为单个 printbox-all.log 下载（GET /api/log?c=all&download=1），不再需要逐个组件分别导出；页面内「全部」视图也合并展示各组件最近日志便于在线排查",
+        "版本号 0.2.25 → 0.2.26"
+      ]
+    },
+    {
+      "version": "0.2.25",
+      "date": "2026-10-22",
+      "title": "修 AirPrint 状态误调模块 + repair 明确报告 CUPS 启动失败",
+      "changes": [
+        "修 status_tokens 误调 DIS.airprint_visible()（discovery 模块无此函数，根因是 0.2.23 起 WebUI 500 的源头；0.2.24 仅用 try/except 兜底，一旦打印机出现仍会出错且状态显示不准）：改为正确的 PS.airprint_visible()（printers 模块）",
+        "repair 不再静默：CUPS 调度器未能就绪时打印明确警告，提示查 `systemctl status cups` 与 /var/log/cups/error_log（此前只记 WARN 日志、仍显示「修复完成」，掩盖了 CUPS 未运行的真问题）"
+      ]
+    },
+    {
+      "version": "0.2.24",
+      "date": "2026-10-22",
+      "title": "修 WebUI 500 + 鸿蒙/iOS 打印机名称怪名 + 队列名规范化",
+      "changes": [
+        "修 WebUI 整页 500：list_printers 对 lpstat -a 空行做 IndexError 防御；status_tokens / network_tokens 中所有外部调用（airprint_visible / get_printer_meta / NS.status / WIFI.*）加 try/except 兜底，任何子模块异常只降级该区块，不再整页 500（详情仍写入 /var/log/printbox/web.log）",
+        "修 AirPrint 服务名怪名（鸿蒙显示「hp_laserjet_p1505n @ /root」、iOS 不显名）：去掉 avahi 的 %h 主机名通配符与「@」符号，服务实例名 / ty / product 统一用干净队列名（仅 [a-z0-9_-]），彻底消除主机名解析异常导致的怪名",
+        "队列名规范化：新增打印机默认命名为 <slug>_printbox（本机即 hp_laserjet_p1505n_printbox），并在探测时自动清理 0.2.23 及更早的裸名队列（如 hp_laserjet_p1505n），避免双队列并存",
+        "_airprint_visible 的两次 avahi-browse 调用加异常兜底，avahi-browse 缺失/超时不再上抛"
+      ]
+    },
+    {
+      "version": "0.2.23",
+      "date": "2026-10-22",
+      "title": "实机复测 13 项反馈：修发现/网络设置/全网卡/自动发布 + 提速",
+      "changes": [
+        "修「设备 URI 为空导致不出纸 / iOS·鸿蒙·Win10 打印失败 / 作业卡队列」：_maybe_repoint_uri 遇到空 URI 不再直接 return，而是立即把正确 USB URI 写回 lpadmin(-v)，并设 ErrorPolicy=abort-job，从根因消除空 URI（这是上版概览误显「就绪」、测试页卡住的最终根因）",
+        "AirPrint 局域网发布改为「静态重试 3 次 + avahi-publish 动态兜底 + 15 分钟定时器 + 启动线程」全自动自愈：ensure_airprint_published 先写静态 airprint-*.service 并验证可见，失败则起 avahi-publish -s 兜底(Restart=always)；self_heal_publish 接入 webapp 守护线程、mdns-check 子命令、printbox-mdns-renew.service（改为调 printbox mdns-check），无需手动上 WebUI 即可反复重试（回应『不成功请自动重试几次』）",
+        "网络参数新增设置功能（回应「只能看不能改」）：系统页「网络参数」卡片内新增表单，默认 DHCP，可手动切换 IPv4 静态（地址/前缀或子网掩码/网关/DNS）+ IPv6（auto/dhcp/static/none，对应地址/前缀/网关/DNS），切换网卡即时经 /api/net_iface 回填；POST /system act=net_apply 经 ifupdown 托管片段(/etc/network/interfaces.d/printbox-<iface>)写盘并 ifdown/ifup 应用",
+        "网卡详情显示全部网卡：interfaces() 默认 include_down=True，网线/未插线的网卡也列出（类型/状态/MAC/IP），不再只显示正在用的无线网卡",
+        "概览页「实时打印任务」的打印机下拉恢复常驻：取消全部任务的下拉来源改为已配置打印机(PS.list_printers())，不再依赖是否有在跑作业，队列为空时也不会消失",
+        "概览页「打印机」状态不再误导：按 已发布/未共享/未发布到局域网/未配置URI 四态显示彩色徽标并附说明文字，明确区分「已发布（手机可见）」与「仅本机就绪」",
+        "打印机详情与设置改为单行布局：设备URI/驱动/共享/默认 用 .kvline 横向并列（各占一行而非各占两行），空 URI 时追加红色告警引导去检测添加",
+        "系统页「更新」「电源」两个卡片移到页面最底部（在 Web 登录 / 运行日志之后）",
+        "WebUI 提速（回应「反应慢、像访问外网」）：network.status / discovery.diagnostics 加 8 秒缓存，sysinfo.wifi_scan 加 15 秒缓存，减少切换页面与 30s 轮询时的 ip/avahi-browse/ss 重扫描；表单与监听端口走局部刷新不整页重载"
+      ]
+    },
+    {
+      "version": "0.2.22",
+      "date": "2026-10-22",
+      "title": "修移动端又打不出 + WebUI 布局/重命名（回应 0.2.21 实机复测）",
+      "changes": [
+        "修 foo2xqx 空白页补丁根本没生效：patch_foo2xqx_ppd 门控只读 PPD 前 30000 字节，而 foo2xqx 的 *cupsFilter(\"...foomatic-rip\") 行常在 PPD 末尾（PPD 30KB+），读不到就直接 return——导致 /usr/local/bin/printbox-foo2xqx-pdf 从不安装、PPD 从不打补丁，iOS/鸿蒙打印失败/白页（Win10 走正规 PS/PDF 不受影响）。改为读完整 PPD 做门控；并修正过滤器行匹配：foo2xqx 的 Foomatic PPD 实际用 application/vnd.cups-pdf / application/vnd.cups-postscript（非裸 application/pdf），原条件只认 application/pdf 会漏掉真正的过滤器行、PPD 仍不打补丁，现对含 foomatic-rip 的 cupsFilter/cupsFilter2 行（PDF/PS 输入）一律重定向到包装脚本",
+        "修 iOS 无名字 + 鸿蒙搜不到：上轮把 AirPrint 服务只注册子类型 _universal._sub._ipp._tcp，导致按基础类型 _ipp._tcp 发现的 Mopria(鸿蒙) 搜不到。改为单个 service-group 内『基础类型 _ipp._tcp + <sub>_universal._sub._ipp._tcp</sub>』一起声明（Apple/avahi 标准 AirPrint 写法），iOS/macOS 按子类型看到 1 个、鸿蒙/Mopria 按基础类型也看到 1 个，且不会重复（重复只会在『一个 service-group 写两个 <type>』时出现，那才是 0.2.20 双名的真因）",
+        "pdftopdf 定位修复：_install_foo2xqx_wrapper 原用 shutil.which(\"pdftopdf\") 但 pdftopdf 是 CUPS 过滤器装在 /usr/lib/cups/filter/ 不在 $PATH，导致补丁静默跳过；新增 _resolve_filter 先 which 再回退过滤器目录",
+        "WebUI 布局：概览页『选择打印机下拉』独占一行、『取消该打印机全部任务』与『重启打印服务』另起一行；打印机页『检测并添加打印机』与『打印测试页』同一行；打印机详情与设置内 设备URI/驱动/共享/默认 各自成行",
+        "WebUI 重命名与合并：『归档与历史』→『历史』；『系统与网络』→『系统』；『设置与日志』内容（登录设置 + 运行日志导出）并入『系统』页，/settings 跳转 /system"
+      ]
+    },
+    {
+      "version": "0.2.21",
+      "date": "2026-10-22",
+      "title": "回应实机反馈九项：修移动端空白页/重复名 + WebUI 去全页刷新 + 发现归位 + WiFi 列表修复 + 日志导出",
+      "changes": [
+        "修 iOS 看到两个同名打印机：AirPrint 服务文件改为只注册 _universal._sub._ipp._tcp 子类型（不再同时声明基础类型 _ipp._tcp），消除 avahi 把同一打印机注册成两条记录、iOS 列出重复名的问题",
+        "修移动端（iOS/鸿蒙）空白页 / 鸿蒙打不出：foo2xqx(host-based) 打印机补上 PDF 归一化补丁——安装 /usr/local/bin/printbox-foo2xqx-pdf 包装脚本，先把 iOS/鸿蒙发来的 JPEG(0 DPI)→PDF 经 pdftopdf 按 PPD 默认 A4 重排页面尺寸，再交 foomatic-rip 出图，根治 aspect=-nan 空白页；任何一步失败自动回退原始行为，绝不比当前更差；该补丁在添加打印机与 init/repair 时均会对 foo2xqx 队列应用",
+        "移除『最近已完成打印』：该展示无实际意义且显示的是最早任务，已删除相关后端与概览页渲染（HTTP 1 需求）",
+        "概览页改为纯展示 + 局部刷新：删除整页『刷新』按钮，取消/取消全部/重启打印服务均改为 AJAX 局部刷新（/api/cancel、/api/cancel_all、/api/restart_cups），不再整页重载（HTTP 4 需求）",
+        "打印机发现状态归位到打印机页：发现状态(mDNS/AirPrint/WS-Discovery/IPP 地址/mDNS 自检/各系统添加指引)从概览页移到打印机页，概览页以展示为主、仅保留必要操作按钮（HTTP 5 需求）",
+        "已保存 / 附近 WiFi 列表修复：list_saved 改为直接读取 NetworkManager 的 system-connections keyfile（已保存网络的权威来源，修复『实际连着网却显示空』）；wifi_scan 新增 iw dev <iface> scan 兜底（修复『附近网络为空』），两者均保留 nmcli/iwlist 回退",
+        "已保存网络加操作：每个已存网络提供『连接』与『忘记』按钮（AJAX），当前连接标记『当前』",
+        "附近网络加连接：每个可见 SSID 提供『连接』按钮，点击后 SSID 自动写入『切换到新 WiFi』的 SSID 输入框",
+        "日志导出：设置与日志页新增『导出当前日志（文本文件）』按钮，经 /api/log?c=<组件>&download=1 下载对应组件日志（保存在 /var/log/printbox，断电不丢）"
+      ]
+    },
+    {
+      "version": "0.2.20",
+      "date": "2026-10-21",
+      "title": "全量动态化 + 移动端作业可见 + /settings 异常处理",
+      "changes": [
+        "WebUI 全量动态化（回应『是否都用了动态页面』）：系统页新增监听端口与已保存/附近 WiFi 的局部刷新（监听端口/进程/用户每 5 秒；WiFi 扫描每 30 秒，避免频繁扫描冲掉正在输入的密码）；归档与历史页新增 GET /api/history，历史表每 5 秒自动刷新，不再需要整页重载",
+        "移动端（iOS/鸿蒙）作业现在能在 WebUI 看见：list_jobs 只显示活动队列，手机作业几秒完成即消失；新增 list_recent_completed + GET /api/live 返回 jobs_done_rows，概览页展示『最近已完成打印』（含用户/文档/大小），直接解决『WebUI 不显示这次任务』",
+        "GET/POST 加全局异常捕获：任何页面（含 /settings）渲染异常时把完整 traceback 写入 /var/log/printbox/web.log 并返回 500，便于用 curl 抓取真实错误，不再靠猜",
+        "版本 0.2.19 → 0.2.20"
+      ]
+    },
+    {
+      "version": "0.2.19",
+      "date": "2026-10-21",
+      "title": "修 mDNS/AirPrint 发现 + 历史必显示 + 系统页进程动态化",
+      "changes": [
+        "mDNS/AirPrint 发现修复（对照官方 airprint-generate 模板）：① AirPrint 服务文件补充 _universal._sub._ipp._tcp 子类型与 Transparent=T，iOS/Mopria 才能把设备识别为 AirPrint（仅声明 _ipp._tcp 时部分客户端直接忽略）；② 修 avahi socket 激活竞态——ensure_avahi 改为先同时停 avahi-daemon.socket+service 再启动服务，确保新写的 /etc/avahi/services/*.service 被干净重读（这是『文件存在但 avahi-browse 看不到』的根因）；③ discovery 自检改为多次重试，避免 avahi 刚重启时瞬时空结果误报『未发现』",
+        "打印历史必显示：开启 CUPS PreserveJobHistory=yes（与已有 PreserveJobFiles=yes 共同保证已完成作业在 lpstat -W completed 中保留更久）；且即便 spool 原文件已被 CUPS 清理，仍写入历史元数据包，保证『最近打印』稳定出现在历史里（仅无原文件可下载），解决『历史只有旧记录』",
+        "系统与网络页进程/硬件信息动态化：新增 GET /api/system 返回硬件用量与进程/用户片段，前端 fetch 每 5 秒局部刷新，不再整页重载（与概览页一致）",
+        "依赖参考仓库交叉验证：本机 airprint-generate 仓库（官方 tjfontaine 模板，确认 TXT 字段）、cups / cups-filters / hplip 源码用于核对打印管线，避免再次凭空猜测"
+      ]
+    },
+    {
+      "version": "0.2.18",
+      "date": "2026-10-21",
+      "title": "WebUI 改动态局部刷新 + 双栈监听，根治首页狂刷/拒绝连接/导航点不进",
+      "changes": [
+        "根因：概览页用 setInterval(()=>location.reload(),5000) 每 5 秒整页重载 printbox.local；mDNS 偶发抖动被放大成『拒绝连接』，且重载瞬间若用户正好点导航会被打断（表现：首页点不进『打印机』，其他页能进）",
+        "改为动态局部刷新：新增 GET /api/live 返回任务/状态片段，前端用 fetch 每 5 秒只更新任务表与状态徽标，不再整页重载、不再反复解析 printbox.local（满足『试试动态页面，不要拿 http 反复刷新』的建议）",
+        "Web 服务由仅绑 0.0.0.0(IPv4) 改为双栈监听(:: 并关闭 IPV6_V6ONLY)，printbox.local 解析到 IPv6 时也能连上，根除『拒绝连接』",
+        "打印本身不通（手机作业进队列但不出纸）属 CUPS→USB→打印机管线问题（驱动/PPD/filter），非 WebUI 范畴，需盒子侧 CUPS 诊断，本版不猜测修改"
+      ]
+    },
+    {
+      "version": "0.2.17",
+      "date": "2026-10-21",
+      "title": "删除非法键 publish-hostname 并加配置自检，彻底根治『avahi 因未知键 exit 255』",
+      "changes": [
+        "根因：0.2.15 在 [publish] 段写入了 avahi 根本不存在的键 `publish-hostname`（与 ServerAliases / publish-hosts-in-file 同类），avahi 解析配置即 exit 255 崩溃、所有 .local 全废。0.2.16 只删了 publish-hosts-in-file、漏删了 publish-hostname，故仍失败",
+        "删除 publish-hostname：该键在 avahi 中不存在，『发布主机名』实际由 [server].host-name 控制，无需任何独立键。[publish] 段现仅保留标准键 publish-addresses",
+        "新增配置自愈 _self_heal_avahi_conf()：写完 avahi-daemon.conf 后真正拉起一次 avahi-daemon，若启动失败则解析 journalctl 的 `Invalid configuration key \"X\"`，自动把 X 从配置剔除并重试，最多 15 次。今后任何未知键都会在第一时间被自动清除，不会再出现『非法键来回致死』",
+        "WebUI 本身一直正常（printbox-web 监听 0.0.0.0:80）；此前『三个地址都打不开』只是 avahi 死亡导致两个 .local 不可解析，IP 直连（<LAN_IP>）始终可用",
+        "版本号 0.2.16 → 0.2.17"
+      ]
+    },
+    {
+      "version": "0.2.16",
+      "date": "2026-10-20",
+      "title": "回退错误键，改用 avahi-publish 稳定发布 printbox.local（修 0.2.15 把整个 avahi 弄死）",
+      "changes": [
+        "回退 0.2.15 致命改动：0.2.15 在 [publish] 段写入了 avahi 根本不认识的键 `publish-hosts-in-file`（以及同样不存在的 `publish-hostname`），导致 avahi 解析配置文件失败、daemon 直接 exit 255 崩溃，连 <hostname>.local 都解析不了、所有 .local 全废（与 0.2.12 的 ServerAliases 同样致命）。[publish] 段只保留真正存在的标准键 publish-addresses；主机名由 [server].host-name 控制",
+        "改用可靠机制发布 printbox.local：新增 systemd 服务 printbox-mdns-alias.service，通过 avahi-utils 自带的 `avahi-publish -a -R printbox.local <IP>` 把别名作为本机局域网 IP 的 mDNS 地址记录持续注册。这是社区公认的跨版本可靠做法，不再依赖 /etc/avahi/hosts 是否被自动读取等不确定行为",
+        "别名服务设 Restart=always，且 15 分钟 renew 定时器与 ensure_avahi 在 avahi 重启后都会一并重启它，IP 变化/avahi 重启都能自动重注册 printbox.local",
+        "ensure_avahi 在 avahi 启动失败时 dump journalctl 便于远程诊断；renew 服务也顺带刷新 printbox.local 别名",
+        "版本号 0.2.15 → 0.2.16"
+      ]
+    },
+    {
+      "version": "0.2.15",
+      "date": "2026-10-20",
+      "title": "修复 printbox.local 真实生效 + WebUI 取消按钮死链白屏",
+      "changes": [
+        "修复 printbox.local 仍打不开（真因）：0.2.14 已正确把「<LAN_IP> printbox」写进 /etc/avahi/hosts，但 avahi 默认 publish-hosts-in-file=no、根本不读取该文件，故别名从不宣告（<hostname>.local 走 host-name 故正常）。在 _ensure_avahi_hostname 的 [publish] 段加入 publish-hosts-in-file=yes（并补 publish-hostname=yes）后，printbox.local 才会被真正宣告",
+        "修复 WebUI 取消按钮白屏/任务删不掉：取消与取消全部两个表单 action 误写为 /jobs，而 do_POST 仅在 path=='/' 分支处理 cancel/cancel_all，POST /jobs 落入 302 空响应死链、cancel 从未执行。改为 action='/'，取消恢复正常",
+        "给 printqueue.cancel_job / cancel_all 增加 timeout（10/15s），防止个别异常作业导致 cancel 子进程挂死、连带 Web 线程卡住（这也可能是「半天没有反应」的成因之一）",
+        "版本号 0.2.14 → 0.2.15"
+      ]
+    },
+    {
+      "version": "0.2.14",
+      "date": "2026-10-20",
+      "title": "修复 0.2.13 遗留三项：printbox.local 仍打不开 / 幽灵打印机 print 仍在 / 打印历史乱序",
+      "changes": [
+        "修复 printbox.local 仍打不开：0.2.13 的 _lan_ip() 仅通过对 8.8.8.8 的 UDP 探测取本机 IP，盒子在随身 WiFi / 封闭网络下出不了公网时返回空串，导致 _publish_printbox_alias 静默跳过、/etc/avahi/hosts 从未写入、printbox.local 永不宣告。改为优先 hostname -I、回退 ip -4 addr、最后才回退公网探测，离线也能正确取到局域网 IP",
+        "修复幽灵打印机 print 仍未删除：0.2.13 的 prune_phantom_printers 只删「本地后端(usb:///hp:/usb 等)且设备不在 lpinfo -v」的队列，而早期版本误建的 print 队列是网络后端 URI（ipp/socket/dnssd 等），不在白名单故被漏掉、继续被 AirPrint 广播（iPhone 看到空名、打印出白纸正是选中了它）。新增「通用名幽灵队列」规则：名称属于 print/printer/printers 等兜底名的队列 100% 是 PrintBox 误建、绝不可能是用户主动命名，无论其 URI 后端一律删除，并清理对应 AirPrint 服务文件",
+        "修复打印历史乱序：list_archive_jobs 原按 archived_at 字符串排序，但同一秒内批量归档的作业时间戳完全相同、顺序随 os.listdir 乱跳。改为按归档文件 mtime（亚秒精度）倒序，确保最新打印稳定排在最前",
+        "版本号 0.2.13 → 0.2.14"
+      ]
+    },
+    {
+      "version": "0.2.13",
+      "date": "2026-10-20",
+      "title": "printbox.local 可靠别名 + 清理幽灵打印机（修复 iPhone 空设备名/打印失败、HarmonyOS 搜不到）",
+      "changes": [
+        "printbox.local 改用 avahi 官方支持的静态主机名机制：写入 /etc/avahi/hosts 的「<LAN_IP> printbox」，avahi 即稳定宣告 printbox.local 解析到本机；彻底替换此前不可靠的 device-info 服务 hack（在本机 avahi build 上根本不会被宣告，导致 printbox.local 时好时坏）",
+        "清理旧版 printbox-alias.service 残留，避免与 hosts 机制重复",
+        "新增 printbox prune 命令（及 repair 自动调用）：删除「本地后端且设备已不在 lpinfo -v」的 CUPS 幽灵队列（典型为早期误建的裸名 print 队列，其 USB URI 早已不存在），并清理其 AirPrint 服务文件。网络打印机（ipp/socket/lpd/http/dnssd）不在此列以免误删",
+        "republish_airprint 增加保护：跳过无 PPD 的裸队列（无法出纸，不发布到 AirPrint），并清理无对应打印机的残留 airprint-*.service 文件，避免死队列继续被广播",
+        "AirPrint 服务 TXT 记录去除非标准字段（priority/air），仅保留 Apple 要求的 txtvers/qtotal/rp/ty/adminurl/note/product/pdl/URF/Color/Duplex/paper，提升 iOS/macOS/HarmonyOS 的识别稳定性",
+        "探测命名兜底改为由设备 URI 派生（如 usb_hp_laserjet_p1505n），不再落成裸名 print，杜绝未来再生成幽灵队列",
+        "版本号 0.2.12 → 0.2.13"
+      ]
+    },
+    {
+      "version": "0.2.12",
+      "date": "2026-10-20",
+      "title": "修复 0.2.11 两个真 bug：avahi 完全起不来 + Web 首页/打印机页崩溃",
+      "changes": [
+        "修复 avahi 完全起不来的致命 bug：0.2.11 在 avahi-daemon.conf 的 [server] 段写入 ServerAliases=printbox，但本机 Debian trixie 的 avahi 不认该键，直接以 status 255 退出、mDNS 全死、手机/电脑发现不了打印机。已移除该键（回归 device-info 服务文件发布 printbox.local 的 best-effort 方式），并把 ServerAliases 加入 _ensure_avahi_hostname 的清理名单，确保重跑 repair/init 能把旧配置里的该键彻底删掉",
+        "修复 Web 首页(概览)与打印机页崩溃：0.2.10 合并时 overview_tokens/printers_page_tokens 误把模块级函数 status_tokens() 当成实例方法 self.status_tokens() 调用，导致每个请求抛 AttributeError、浏览器拿不到页面。已修正为直接调用模块函数 status_tokens()",
+        "0.2.10 变更日志中『ServerAliases 是 avahi 0.8 官方主机名别名机制』的描述不准确（本机构建不支持），本版已回退；printbox.local 现由 device-info 服务 best-effort 发布，稳定地址仍请以 <主机名>.local（<hostname>.local）为准",
+        "版本号 0.2.11 → 0.2.12"
+      ]
+    },
+    {
+      "version": "0.2.11",
+      "date": "2026-10-19",
+      "title": "修复安装中断导致 WebUI 起不来/手机搜不到 + 禁用 NM 接管 + 中文显示修复",
+      "changes": [
+        "修复 install 中断根因：0.2.10 把 network-manager 纳入默认安装，其 postinst 会启动并接管所有网卡，在随身 WiFi/DHCP 环境下触发 IP 反复变化、冲掉正在跑的 install/SSH 会话，导致 provision 没跑完（WebUI 服务没起来、avahi 没发布→手机搜不到打印机）",
+        "新增 _stabilize_networking()：写入 /etc/NetworkManager/conf.d/printbox-unmanaged.conf（managed=false）双保险，并在装完依赖后禁用 NetworkManager 服务——仅保留 nmcli 二进制（WebUI 不会误报「未安装」），SSID 检测走 iw，网卡回到 ifupdown/wpa_supplicant 原管理方式，IP 即稳定",
+        "新增 printbox repair 命令（及 init --no-apt）：完全跳过 apt，仅重做配置/启动服务/重新发布打印机到局域网，专为「init 中断后补救」设计，避免反复卡在网络",
+        "修复潜在 bug：init.py 此前调用 discovery.write_wsdd_unit 却从未 import discovery（被 try/except 吞掉），WS-Discovery 实际从未配置；现已在模块顶部 import discovery，repair 与 init 均正确发布 WSD",
+        "中文显示修复：新增 _ensure_locale_and_fonts()，设置系统 locale 为 C.UTF-8（/etc/default/locale、/etc/environment、/etc/profile.d），并最佳努力安装中文字体 fonts-wqy-zenhei，修复命令行中文显示为 ◆（豆腐块）；注：SSH 客户端自身也需启用中文字体",
+        "features 文案不变（仍为 6 大板块）；本次为稳定性与可用性修复"
+      ]
+    },
+    {
+      "version": "0.2.10",
+      "date": "2026-10-19",
+      "title": "WebUI 五组合并 + printbox.local 稳定化 + 打印历史为空修复 + WiFi 默认装好",
+      "changes": [
+        "WebUI 导航由 12 项合并为 6 项：概览(状态+打印任务+发现) / 打印机(打印机+打印设置) / 归档与历史(归档+打印历史) / 系统与网络(系统+网络) / 设置与日志(设置+日志) / 关于；旧路径(/jobs /discovery /history /network /logs /printing)保留重定向以兼容书签",
+        "printbox.local 稳定化：_ensure_avahi_hostname() 在 [server] 段新增 ServerAliases=printbox（avahi 0.8 官方主机名别名机制），替代原来靠 device-info 服务“碰运气”争用 printbox.local 的做法，彻底解决品牌域名解析时好时坏",
+        "关闭 CUPS 重复广播：_ensure_cups_lan() 追加 BrowseLocalProtocols none，停止 CUPS 自身再注册 _ipp._tcp，消除与 PrintBox 显式 AirPrint 服务文件同名碰撞（日志里 Failed to add service ... _ipp collision 的根因）",
+        "修复打印历史为空（核心 bug）：archive_one 的正则 ^d{jid}$ 只匹配 d12，而 CUPS spool 文件名是 5 位零填充的 d00012，永远匹配不上→文件找不到→不归档；改为 ^d0*{jid}(?:-\\d+)?$ 兼容任意零填充",
+        "确保 PreserveJobFiles=yes 在 provision 阶段（CUPS 稳定后）显式开启，不再仅在“新增打印机”时开启，避免已存在打印机时漏开导致历史无原始文件可抓",
+        "WiFi 默认装好：CORE_APT 新增 network-manager 与 iw，新装/重装即具备 WiFi 管理与 SSID 检测能力（Debian 默认 NM 不会接管 /etc/network/interfaces 中已配接口，风险极低）；旧机器执行 sudo apt-get install -y network-manager iw 即可补齐",
+        "features 文案同步：Web 管理界面条目改为合并后的 6 大板块"
+      ]
+    },
+    {
+      "version": "0.2.9",
+      "date": "2026-10-19",
+      "title": "彻底修复 avahi 配置（publish-addresses 放错段导致 mDNS 仍全死）",
+      "changes": [
+        "根因（比 0.2.8 更深一层）：0.2.8 把 publish-hostname/publish-addresses 写进 [server] 段，但 publish-addresses 属于 [publish] 段；avahi 启动仍报 Invalid configuration key publish-addresses in group server 并 exit 255，mDNS 依旧全死，手机/电脑仍发现不了打印机",
+        "修正：_ensure_avahi_hostname() 仅动标准且跨版本有效的键——[server] 段写 host-name/use-ipv4/use-ipv6，[publish] 段写 publish-addresses=yes；并彻底移除非标准的 publish-hostname（发布主机名用标准 host-name= 即可）",
+        "已验证：构造坏配置（publish-addresses 在 [server]）跑修正逻辑后，avahi-daemon -c 通过、[server]/[publish] 段键值正确",
+        "注意：0.2.8 已装机器必须先修复 /etc/avahi/avahi-daemon.conf（republish 不改写配置、无法自愈），再重启 avahi-daemon；或重装 0.2.9 后 sudo printbox init 自动修好"
+      ]
+    },
+    {
+      "version": "0.2.8",
+      "date": "2026-10-19",
+      "title": "修复局域网发现失败（avahi 配置被写坏导致 mDNS 全死 + 全新安装时序）",
+      "changes": [
+        "根因A（致命）：0.2.6 的 _ensure_avahi_hostname() 把缺失的键追加到文件末尾，而 Debian 默认 avahi-daemon.conf 末尾是 [rlimits] 段，导致 publish-hostname 落到 [rlimits] 下；avahi 启动报 “Invalid configuration key publish-hostname in group rlimits” 并 exit 255，mDNS 全死、手机/电脑发现不了打印机（正是需求4要解决的 .local 不稳定问题的同一处代码引入的回归）",
+        "修复A：重写 _ensure_avahi_hostname()，先移除所有目标键（含注释）的任何残留，再确保 [server] 段存在并把 host-name/publish-hostname/publish-addresses/use-ipv4/use-ipv6 正确写入 [server] 段首部，杜绝落到错误段",
+        "根因B：provision() 原先用「探测打印机」(步骤4) 跑在「CUPS 稳定化」(步骤5) 之前；全新 rm -rf 重装时 CUPS 首次启动慢，5 秒窗口内 lpinfo 返回空 → 队列未建立 → 局域网无打印机可发布",
+        "修复B：把 CUPS 稳定化（配置/enable/restart/等待超时 30s→60s）提前到「探测打印机」之前，CUPS 稳定后再 detect",
+        "命令变慢的根因：avahi 起不来导致 republish 反复失败重启 + 6 秒 avahi-browse 轮询 + journalctl，修复 A 后恢复",
+        "重要修正：0.2.7 已装机器不能仅靠 detect+republish 恢复——因为配置已被写坏。需先修复 /etc/avahi/avahi-daemon.conf（见下方即时修复命令），再 systemctl restart avahi-daemon；或重装 0.2.8 后 sudo printbox init 自动修好"
+      ]
+    },
+    {
+      "version": "0.2.7",
+      "date": "2026-10-19",
+      "title": "新增「打印任务」页：实时队列 + 取消作业 + 重启打印服务",
+      "changes": [
+        "新增「打印任务」页（导航新增入口）：实时显示 CUPS 当前活动/排队作业（打印机/作业号/用户/文档/大小/提交时间）与各打印机状态（就绪/打印中/已停用）",
+        "每个作业提供「取消」按钮；可按打印机「取消该打印机全部任务」（等价于命令行的 cancel -a）",
+        "新增「重启打印服务」按钮：仅重启 CUPS（systemctl restart cups），区别于已有的「重启整个系统」，解决鸿蒙提交作业卡在队列导致打印机反复咔哒声不出纸的问题",
+        "页面支持手动「刷新」与「自动刷新（5 秒）」开关，方便观察实时队列",
+        "所有写操作（取消/重启）对作业标识与打印机名做严格白名单校验并以列表形式调用子进程，杜绝命令注入",
+        "说明：鸿蒙等设备提交打印时若客户端未收到明确的“已接受”回执可能重复提交作业，进而卡在 CUPS 队列——此属服务端队列侧问题（非鸿蒙系统本身），本页提供可视化清理入口"
+      ]
+    },
+    {
+      "version": "0.2.6",
+      "date": "2026-10-18",
+      "title": "网络页重做 + 系统页瘦身 + 打印历史预览完善 + mDNS 稳定性加固",
+      "changes": [
+        "网络页（原 WiFi 页重命名）：改为后端无关读取真实状态——通过 ip/iw/ss/proc/sys 直接读网卡、路由、网关、DNS、监听端口；无论插网线还是 wpa_supplicant 手动连 WiFi 都正确显示，不再误报「(未连接)」",
+        "网线优先级永远高于 WiFi：active_interface() 在默认路由接口中优先选以太网，方便故障时插网线接管",
+        "网络页新增：当前上网网卡、各网卡类型/状态/MAC/IP、默认网关、DNS、WiFi SSID、监听端口与联网进程表(80/631/5353/22/53/3702)",
+        "WiFi 连接管理仅在检测到 NetworkManager(nmcli) 时启用；未安装 NM 时给出清晰提示，状态展示不受影响",
+        "系统页：移除与网络页重复的网络信息，新增 CPU/内存/磁盘型号+容量/系统进程/登录用户+登录方式等",
+        "打印历史：打开页面时自动补抓可能漏网的作业（run_once）；预览支持 PDF/图片(png/jpg/gif/bmp/webp/tiff)/文本/网页，urf/pwg/ps 尝试经 urftopdf/gs 转 PDF 后预览，其余格式提供下载",
+        "预览改为全屏遮罩（一次只开一个，关闭后才能看下一个，关闭即释放资源），支持 Esc 关闭",
+        "mDNS 稳定性：provision 幂等加固 /etc/avahi/avahi-daemon.conf（publish-hostname/publish-addresses/use-ipv4/ipv6），并新增 printbox-mdns-renew 定时器每 15 分钟对 avahi 发 SIGHUP 重新宣告，解决 <hostname>.local 放置两天后失效问题"
+      ]
+    },
+    {
+      "version": "0.2.5",
+      "date": "2026-10-16",
+      "title": "修复 CUPS 仅监听 localhost 导致局域网设备无法连接 631（发现得了连不上）",
+      "changes": [
+        "根因：Debian 默认 cupsd.conf 为 Listen localhost:631，只在 127.0.0.1:631 监听；局域网设备连 <主机>:631 直接 connection refused，表现为 iPhone/Win10 即便发现打印机也加不上、http://<IP>:631/printers 拒绝连接",
+        "修复：新增 _ensure_cups_lan()，幂等把 localhost-only 的 Listen 替换为 Port 631（监听所有网卡），并在 <Location /> 与 <Location /printers> 注入 Allow from @LOCAL，开启 Browsing 作为兜底",
+        "新增：provision() 末尾将已建打印机队列标记为 printer-is-shared=true，确保局域网客户端可提交作业",
+        "验证要点：部署后 <hostname> 上 `ss -tulnp | grep ':631'` 应显示 *:631（或 0.0.0.0:631）；Win10 `Test-NetConnection <IP> -Port 631` 应 TcpTestSucceeded=True；浏览器开 http://<IP>:631/printers 应可加载",
+        "说明：Win10「网络」里的 0x80070035 SMB 报错与本打印服务无关（本机不提供 Windows 文件共享）；打印机发现走 WSD(wsdd2)/IPP，不依赖 SMB"
+      ]
+    },
+    {
+      "version": "0.2.4",
+      "date": "2026-10-16",
+      "title": "修复 Win10 侧 WS-Discovery(wsdd2) 启动即崩溃 + iOS AirPrint 仍需 image/urf",
+      "changes": [
+        "根因：wsdd2 的 -b 解析器对每段只按第一个冒号切分 key:value，且 value 内不允许再出现冒号；我们给的 presentationurl:http://IP:631/printers/ 含多个冒号 → 报 Bad key:val 并 exit 1，导致 Win10「网络」里看不到主机",
+        "修复：从 wsdd2 的 -b 元数据移除 presentationurl（URL 必含 '://' 无法承载）；vendor/model/serial 均不含冒号，保留；presentationurl 仅影响 WSD 属性回显，对发现非必需",
+        "iOS/macOS AirPrint 探测强制要求 TXT 的 pdl 含 image/urf，仅 application/pdf 时 iOS 直接隐藏设备；已将 pdl 改为 application/pdf,image/urf",
+        "Debian trixie 默认源仅有 wsdd2（christgau/wsdd 不在其源），故保持 wsdd2 路径；Win10 打印机自动添加仍走 IPP 兜底地址 http://<IP>:631/printers/<名>",
+        "验证：avahi-browse 已可见 hp_laserjet_p1505n @ <hostname>；journalctl 确认 AirPrint 服务 successfully established"
+      ]
+    },
+    {
+      "version": "0.2.3",
+      "date": "2026-10-16",
+      "title": "修复 AirPrint 服务文件被 avahi 拒绝加载（mismatched tag）+ 修复 WS-Discovery 单元",
+      "changes": [
+        "根因：write_airprint_service 用 open('w') 截断后逐行写，avahi 的 inotify 在半截文件时抢读 → 报『mismatched tag』拒绝加载，导致手机/电脑找不到打印机",
+        "改为：内存拼装 → expat 写前自检 → 写临时文件 → 原子 rename（avahi 永远只看到完整文件）；avahi 重启统一在全部写完之后执行一次",
+        "修复 WS-Discovery(systemd) 单元：原 ExecStart 用 $(cat ...) 但 systemd 不展开、不走 shell，单元永远起不来；改为内联全部参数并对含空格参数加引号",
+        "wsdd 未安装时由 init 阶段最佳努力 apt 补装（wsdd-server / wsdd），并兼容 v1(--host-name) 与 v2(--hostname)",
+        "打印机型号写入 XML 前做转义，避免特殊字符破坏 XML"
+      ]
+    },
+    {
+      "version": "0.2.2",
+      "date": "2026-10-16",
+      "title": "全协议发现 + 发现页（AirPrint/mDNS 修复 + WS-Discovery）",
+      "changes": [
+        "修复 AirPrint 发布：avahi 改用 stop→start 干净重启强制重读服务文件，解决『文件存在但 avahi-browse 看不到、手机/电脑找不到打印机』",
+        "新增 WS-Discovery(wsdd) 守护：Windows / HarmonyOS 在「添加打印机」里可自动看到 PrintBox 打印服务器",
+        "新增「发现」页：实时显示 AirPrint(mDNS) / WS-Discovery 状态、可用 IPP 打印地址，并按 iOS/macOS/Android/HarmonyOS/Windows/Linux 给出添加指引",
+        "发布失败不再静默：会把 avahi 日志与服务文件内容写入 /var/log/printbox/ 便于远程诊断",
+        "保持通用：单页打印、多打印机各自独立发布（每台作为独立设备被发现，用户自选）"
+      ]
+    },
+    {
+      "version": "0.2.1",
+      "date": "2026-10-16",
+      "title": "WiFi 管理页（切换网络 + 已存网络优先级/回退）",
+      "changes": [
+        "新增「WiFi」页：可连接到新 WiFi（填 SSID + 密码），并列出附近网络直接连接",
+        "已保存网络按「优先级」排序，高者优先连接；连接新 WiFi 不删除旧配置，连不上时自动回退到下一个可用网络（与手机一致）",
+        "支持对已存网络调整优先级（↑/↓）、一键连接、忘记（当前连接不可删除）",
+        "切换 WiFi 后以新 IP 自动重新发布 AirPrint，局域网打印不中断"
+      ]
+    },
+    {
+      "version": "0.2.0",
+      "date": "2026-10-16",
+      "title": "WebUI 新增打印设置 / 系统 / 关于 三大板块",
+      "changes": [
+        "新增「打印设置」页：查看并修改打印机的可设置项（纸张/双面/色彩/分辨率等，由 PPD 动态暴露），可设定默认打印机",
+        "新增「系统」页：硬件用量（CPU/内存/磁盘/温度/负载/开机时长）、网络信息、WiFi 扫描、系统升级(apt)与 PrintBox 升级",
+        "新增「关于」页：版本号、功能特性、版本与更新日志，后续可在此维护发布内容",
+        "修复手机找不到打印机：确保 avahi-daemon 运行，并提供「重新发布到局域网(AirPrint)」一键重新生成 Avahi 服务文件",
+        "AirPrint 服务文件改用 PPD 真实机型名，pdl 声明为 application/pdf（由 CUPS 完成 PDF→打印机格式转换）"
+      ]
+    },
+    {
+      "version": "0.1.9",
+      "date": "2026-10-15",
+      "title": "诊断脚本修复与 URI 校正健壮性",
+      "changes": [
+        "diag.sh 修正 URI 校正 grep 锚点错误（lpinfo -v 行首是 direct 而非 usb://）",
+        "diag.sh 增加 root 检查与 PATH 前置，避免普通用户下命令找不到",
+        "探测自愈：已存在且驱动正常的打印机若当前 URI 非最优（如 hp:/usb 配 foo2zjs）自动校正为 usb://"
+      ]
+    },
+    {
+      "version": "0.1.8",
+      "date": "2026-10-15",
+      "title": "根因修复：单个作业打印出多页",
+      "changes": [
+        "修正设备 URI 优先级：USB 标准后端 usb:// 高于 HPLIP 私有后端 hp:/usb",
+        "HPLIP 后端配 foo2zjs/foo2xqx 会反复重发数据导致「单作业多页」，现优先选用标准 usb://"
+      ]
+    },
+    {
+      "version": "0.1.7",
+      "date": "2026-10-15",
+      "title": "修复 cups-driverd 崩溃源",
+      "changes": [
+        "移除 printer-driver-indexbraille 损坏的 .defs 文件（会让 cups-driverd 崩溃、调度器反复 shutting down）"
+      ]
+    },
+    {
+      "version": "0.1.6",
+      "date": "2026-10-15",
+      "title": "修复孤儿订阅导致不出纸",
+      "changes": [
+        "清理 cups-browsed 遗留的孤儿 dbus:// 订阅缓存，恢复 CUPS 稳定"
+      ]
+    },
+    {
+      "version": "0.1.5",
+      "date": "2026-10-15",
+      "title": "修复 USB 周期性掉线",
+      "changes": [
+        "udev 规则与诊断脚本永久禁用 USB autosuspend（host-based 打印机唤醒失败被 reset 的根因）"
+      ]
+    },
+    {
+      "version": "0.1.4",
+      "date": "2026-10-15",
+      "title": "修复打印不停/无限重打",
+      "changes": [
+        "所有打印机默认 ErrorPolicy=abort-job，出错作业立即中止而非无限重试"
+      ]
+    },
+    {
+      "version": "0.1.3",
+      "date": "2026-10-15",
+      "title": "修复 cups-browsed 订阅风暴",
+      "changes": [
+        "默认禁用 cups-browsed（Create-Printer-Subscriptions 循环拖垮调度器的根因）",
+        "持久化抬高 MaxSubscriptions 上限作为防御"
+      ]
+    },
+    {
+      "version": "0.1.2",
+      "date": "2026-10-15",
+      "title": "初始可用版本",
+      "changes": [
+        "CUPS 自动探测/添加打印机、驱动自动匹配、WebUI 状态/打印机/归档/历史/设置/日志"
+      ]
+    }
+  ]
+}

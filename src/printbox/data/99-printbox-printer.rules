@@ -1,0 +1,11 @@
+# PrintBox: 打印机热插拔时触发探测（自动添加 + 自动安装驱动）
+# 匹配 USB 打印机设备（usblp 暴露为 /dev/usb/lp*）
+ACTION=="add", SUBSYSTEM=="usbmisc", KERNEL=="lp*", TAG+="systemd", ENV{SYSTEMD_WANTS}+="printbox-printer-hotplug.service"
+ACTION=="add", SUBSYSTEM=="usb", ENV{ID_USB_INTERFACES}=="*:0701??:*", TAG+="systemd", ENV{SYSTEMD_WANTS}+="printbox-printer-hotplug.service"
+
+# 禁用 USB 打印机的自动挂起（autosuspend）。
+# Linux 默认对空闲 USB 设备 autosuspend 省电；host-based 打印机（如 HP LaserJet P1505n）唤醒失败会被
+# 内核 reset，表现为 usblp 周期性 removed/re-added（即“USB 频繁掉线”），进而打断打印、触发 CUPS 后端
+# 崩溃（Scheduler shutting down）。同一打印机在 Windows 上不掉线，证明这是 Linux 电源管理行为而非线缆/供电。
+# 关闭 autosuspend 后 USB 常驻供电，掉线/打印中断/后端崩溃一并消除。该规则对所有 USB 打印机通用。
+KERNEL=="usblp*", ATTR{device/power/control}="on"

@@ -1,0 +1,84 @@
+[[notice]]
+<div class="card">
+  <h2>系统状态</h2>
+  <div class="row">
+    <div class="kv"><span class="k">主机名</span><span class="v">[[hostname]]</span></div>
+    <div class="kv"><span class="k">访问网址</span><span class="v">[[url]]</span></div>
+    <div class="kv"><span class="k">IP 地址</span><span class="v">[[ip]]</span></div>
+    <div class="kv"><span class="k">WiFi</span><span class="v">[[wifi_ssid]]</span></div>
+    <div class="kv"><span class="k">CUPS 打印服务</span><span class="v"><span id="cups_state" class="badge [[cups_badge]]">[[cups_state]]</span></span></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>打印机</h2>
+  <div id="printers_html">[[printers_html]]</div>
+  <p style="margin-top:12px"><a class="btn" href="/printers">管理打印机</a></p>
+</div>
+
+<div class="card">
+  <h2>实时打印任务</h2>
+  <p>CUPS 打印服务：<span id="jobs_cups_state" class="badge [[jobs_cups_badge]]">[[jobs_cups_state]]</span></p>
+  <p class="muted">实时显示当前联网设备（手机 / 电脑 / 鸿蒙等）提交到本服务器的打印作业。
+  若打印机反复出现“准备打印”的咔哒声却不出纸，通常是队列里有卡住 / 重复的作业——
+  在此一键取消即可，无需登录命令行。</p>
+  [[printer_select]]
+  <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+    [[jobs_cancel_all]]
+    <button class="btn" type="button" onclick="restartCups()">重启打印服务</button>
+  </div>
+  <table>
+    <tr><th>打印机</th><th>作业号</th><th>用户</th><th>文档</th><th>大小</th><th>提交时间</th><th>操作</th></tr>
+    <tbody id="jobs_rows">[[jobs_rows]]</tbody>
+  </table>
+  <div id="ov_notice" style="margin-top:10px"></div>
+</div>
+
+<script>
+let _timer = null;
+function showNotice(el, msg, ok){
+  if(!el) return;
+  el.className = 'badge ' + (ok ? 'ok' : 'err');
+  el.textContent = msg;
+}
+function postJSON(url, body, done){
+  fetch(url, {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: body})
+    .then(r=>r.json()).then(d=>{ if(done) done(d); }).catch(()=>{});
+}
+function applyLive(d){
+  const set = (id, html) => { const e = document.getElementById(id); if(e) e.innerHTML = html; };
+  const badge = (id, state, cls) => { const e = document.getElementById(id); if(e){ e.className = 'badge ' + cls; e.textContent = state; } };
+  if (d.cups_state !== undefined) badge('cups_state', d.cups_state, d.cups_badge);
+  if (d.jobs_cups_state !== undefined) badge('jobs_cups_state', d.jobs_cups_state, d.jobs_cups_badge);
+  if (d.jobs_rows !== undefined) set('jobs_rows', d.jobs_rows);
+  if (d.printers_html !== undefined) set('printers_html', d.printers_html);
+}
+function fetchLive(){
+  fetch('/api/live').then(r=>r.json()).then(applyLive).catch(()=>{});
+}
+function cancelJob(raw){
+  postJSON('/api/cancel', 'job=' + encodeURIComponent(raw), function(d){
+    showNotice(document.getElementById('ov_notice'), d.msg, d.ok);
+    fetchLive();
+  });
+}
+function cancelAll(){
+  const sel = document.getElementById('cancel_all_printer');
+  const p = sel ? sel.value : '';
+  postJSON('/api/cancel_all', 'printer=' + encodeURIComponent(p), function(d){
+    showNotice(document.getElementById('ov_notice'), d.msg, d.ok);
+    fetchLive();
+  });
+}
+function restartCups(){
+  postJSON('/api/restart_cups', '', function(d){
+    showNotice(document.getElementById('ov_notice'), d.msg, d.ok);
+    fetchLive();
+  });
+}
+document.addEventListener('DOMContentLoaded', function(){
+  if (_timer) clearInterval(_timer);
+  _timer = setInterval(fetchLive, 5000);
+  fetchLive();
+});
+</script>

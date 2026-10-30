@@ -1,0 +1,15 @@
+[Unit]
+Description=PrintBox 打印归档守护进程
+After=cups.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/printbox archive --daemon
+Restart=on-failure
+RestartSec=5
+User=root
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

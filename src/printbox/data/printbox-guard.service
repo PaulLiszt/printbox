@@ -1,0 +1,10 @@
+[Unit]
+Description=PrintBox 打印洪流防护（取消重复在途作业）
+After=cups.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/printbox guard
+
+[Install]
+WantedBy=multi-user.target

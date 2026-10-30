@@ -1,0 +1,24 @@
+# Python / build artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+.venv/
+venv/
+
+# Test / debug temp dirs created by local harnesses
+_t/
+_t2/
+
+# Release artifacts (box-upgrade tarballs + PyPI sdist/wheel) — not committed
+dist/
+
+# OS / editor cruft
+.DS_Store
+*.swp
+*~
+
+# Local secrets (never commit)
+*.local.json
+config.local.json
