@@ -7,8 +7,16 @@
 > PrintBox 是一个 **pip 分发的 Python 应用**，不包含操作系统镜像。网络参数、主机名、系统账号等由底层 Linux 自行管理（与系统一致）；PrintBox 只负责把打印服务栈跑起来并提供管理界面。
 > PrintBox is a **pip-distributed Python application**, not a full OS image. Network settings, hostname, and system accounts are managed by the underlying Linux (consistent with the system); PrintBox only brings up the print-service stack and provides a management UI.
 
+## 核心能力 / Core capability
+
+> **让老式 USB 打印机焕发新生 / Give your old USB printer a new lease on life**
+> 把一台只支持 USB 直连的普通打印机，接上任意一台 Linux 小主机（树莓派 / 旧电脑 / 迷你盒），PrintBox 会把它变成一台**无线打印服务器**：局域网内 **iOS、Android、鸿蒙(HarmonyOS)、macOS、Windows、Linux** 等任意终端，都能像使用原厂网络打印机一样**无线调用**它——无需打印机自带网卡或 Wi‑Fi 模块。
+> Connect any ordinary USB-only printer to a small Linux box (Raspberry Pi / old PC / mini appliance); PrintBox turns it into a **wireless print server**. Any device on your LAN — **iOS, Android, HarmonyOS, macOS, Windows, Linux** — can **print to it over the network** just like a native network printer, with no Wi‑Fi/Bluetooth module required on the printer itself.
+
 ## 功能特性 / Features
 
+- **旧打印机无线化 / Retrofit any USB printer**：把仅支持 USB 直连的老打印机接入局域网，变成可被手机/电脑无线调用的打印服务器，无需打印机自带网卡。
+  Turn a USB-only legacy printer into a LAN-accessible wireless print server — no printer-side network card required.
 - **一键启动 / One-command bootstrap**：`sudo printbox init` 后所有服务开机自启；`printbox start/stop/restart/status` 随时管理。
   `sudo printbox init` brings up all services on boot; `printbox start/stop/restart/status` manage them anytime.
 - **全协议打印 / Universal printing**：CUPS + IPP Everywhere + AirPrint(iOS/macOS) + Mopria(Android/HarmonyOS) + WS-Discovery(Windows) + LPD。
