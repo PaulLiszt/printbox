@@ -2,4 +2,4 @@
 
 以 pip 包形式分发，安装后由 printbox init 在本机配置打印/网络栈与 systemd 服务。
 """
-__version__ = "0.2.52"
+__version__ = "0.2.53"

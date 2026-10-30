@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "printbox"
-version = "0.2.52"
+version = "0.2.53"
 description = "Turn a minimal Linux box into a headless print server (CUPS / AirPrint / Mopria / WS-Discovery / WebUI / archive)."
 readme = "README.md"
 requires-python = ">=3.9"

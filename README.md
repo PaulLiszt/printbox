@@ -21,10 +21,24 @@
 
 ## 安装 / Installation
 
-**一行命令从 PyPI 安装 / Install from PyPI in one line：**
+> **安装位置说明 / About the install location**
+> 新版 Debian / Ubuntu（含 trixie）、Fedora、Arch 等发行版，将系统 Python 标记为「外部受管」（PEP 668），**禁止用系统 `pip` 直接安装包**（会报 `externally-managed-environment`）。
+> 因此 PrintBox 设计为安装在**独立的虚拟环境（venv）**中：安装脚本会自动创建 `/opt/printbox/venv` 并装进去，命令经该 venv 的 `printbox` 入口执行。
+> Modern Debian/Ubuntu (incl. trixie), Fedora, Arch, etc. mark the system Python *externally managed* (PEP 668) and **block installing with the system `pip`** (error: `externally-managed-environment`).
+> PrintBox is therefore designed to install into its **own virtual environment (venv)**: the installer creates `/opt/printbox/venv` and installs there; the `printbox` command runs from that venv.
+
+**① 推荐：一行命令全自动（自动建 venv + 安装 + 初始化）/ Recommended — one line, all-in-one (auto venv + install + init):**
 
 ```bash
-pip install printbox
+curl -sSL https://raw.githubusercontent.com/PaulLiszt/printbox/main/install.sh | sudo bash
+```
+
+**② 或手动安装到 venv / Or install manually into a venv:**
+
+```bash
+sudo python3 -m venv /opt/printbox/venv
+sudo /opt/printbox/venv/bin/pip install printbox
+sudo ln -sf /opt/printbox/venv/bin/printbox /usr/local/bin/printbox
 ```
 
 初始化（需 root，自动装系统依赖、写服务、探测打印机）/ Initialize (needs root; auto-installs system deps, writes services, probes printers):
@@ -33,12 +47,8 @@ pip install printbox
 sudo printbox init
 ```
 
-**或全自动一键 / Or the all-in-one one-liner**（GitHub 安装脚本，自动建 venv + 安装 + 初始化 / GitHub installer: auto venv + install + init）：
-
-```bash
-curl -sSL https://raw.githubusercontent.com/PaulLiszt/printbox/main/install.sh | sudo bash
-```
-
+> PyPI 上的包名就是 `printbox`（`pip install printbox`）；但在 PEP 668 系统上请务必在 venv 内执行（见上），**系统级 `pip install` 会失败**。
+> The PyPI package name is `printbox` (`pip install printbox`), but on PEP 668 systems run it **inside a venv** as shown above — a system-wide `pip install` will fail.
 > 安装脚本可重复运行（重跑自动重建 venv 与服务）；Web 管理界面始终会启动（不依赖 CUPS 是否就绪），打印功能待 CUPS 就绪后自动可用。
 > The installer is idempotent (re-running rebuilds the venv and services); the Web UI always comes up (independent of CUPS), and printing becomes available automatically once CUPS is ready.
 
