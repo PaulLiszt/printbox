@@ -1,0 +1,519 @@
+{
+  "project": "PrintBox",
+  "tagline": "Turn a minimal Linux box into a headless print server",
+  "description": "PrintBox is a pip-distributed Python application: on a small host running a systemd distro such as Debian/Ubuntu, a single command turns it into a LAN print server supporting AirPrint / Mopria / WS-Discovery, with a Chinese Web admin UI. Network parameters, hostname and system accounts remain managed by the underlying Linux (consistent with the system); PrintBox only runs the printing service stack.",
+  "homepage": "https://github.com/PaulLiszt/printbox",
+  "releases_url": "https://github.com/PaulLiszt/printbox/releases",
+  "features": [
+    "One-click start: after `sudo printbox init` all services auto-start on boot; start/stop/restart/status for on-demand management",
+    "Full wireless/wired printing: CUPS + IPP Everywhere + AirPrint (iOS/macOS) + Mopria (Android/HarmonyOS) + WS-Discovery (Windows) + LPD",
+    "Web admin UI (6 sections): Overview (status + jobs + discovery) / Printers (printers + print settings) / Archive & History / System & Network / Settings & Logs / About, reachable directly on the LAN",
+    "Auto driver install: on detecting a printer, automatically `apt`-install the matching driver package by vendor (HP / Brother / Samsung / Canon / Epson …)",
+    "Print job archive: every print's original file is auto-saved; quota is auto-computed from disk capacity and oldest files are rotated out when full",
+    "Print history: common formats (PDF / images / text / web pages) can be previewed full-screen and re-printed with one click",
+    "Settings survive power loss: config lands in /etc/printbox, logs in /var/log/printbox",
+    "Generic and robust: every fix is hardware/OS-agnostic; explicit Avahi service files publish printers, avoiding the cups-browsed subscription storm"
+  ],
+  "changelog": [
+    {
+      "version": "0.2.54",
+      "date": "2026-10-30",
+      "title": "WebUI English version + language switch (persists across reboot)",
+      "changes": [
+        "Added an English Web admin UI: a '中文 / EN' switch at the top-right; all navigation, labels, buttons, status badges, API messages and the About page (incl. full changelog) are provided in English; the zh path is completely unchanged, zero regression.",
+        "The language choice is written to the lang field of /etc/printbox/config.json and survives a box reboot — it won't revert to Chinese.",
+        "Implementation: a few multi-line paragraphs use [[i18n:KEY]] (STRINGS holds zh/en); all other short labels / dynamic fragments / JS / API messages use the PHRASES dictionary, replaced longest-first to avoid short words clobbering long ones."
+      ]
+    },
+    {
+      "version": "0.2.34",
+      "date": "2026-10-26",
+      "title": "Regression fix for 0.2.33: remove illegal BrowseRemoteProtocols directive + actually disable driverless backend to stop the crash loop",
+      "changes": [
+        "Fixed a fatal config error introduced in 0.2.33: it appended `BrowseRemoteProtocols none` to cupsd.conf, but this directive is invalid on this machine's CUPS (Debian trixie / CUPS 2.4); cupsd failed to parse it and fell back to defaults (Browsing On by default), so 'still can't print + iOS still shows two copies' persisted. 0.2.34 removes this illegal directive entirely, keeping only `Browsing Off` + `BrowseLocalProtocols none` (both valid here).",
+        "Truly root-causes the cupsd crash loop every ~15s (Bad line from driverless): `Browsing Off` only stops cupsd's own broadcast, while driverless scanning is launched independently by cups-driverd and is unrelated to the Browsing switch — so 0.2.33's `Browsing Off` alone couldn't stop the crash. 0.2.34 adds `_disable_driverless_backend()`, which renames /usr/lib/cups/backend/driverless and dnssd to `.disabled` backups during init/repair (idempotent, restorable by package upgrade). This box uses a fixed USB printer + explicit foo2xqx PPD and never uses driverless/network discovery, so disabling is completely safe; cupsd stops scanning its own AirPrint, stops emitting malformed lines, the crash loop disappears, printing recovers.",
+        "Self-heal on upgrade: 0.2.34's `printbox repair` / `init` rewrites a valid cupsd.conf (Browsing Off) and disables the driverless backend before restarting cups; running upgrade_box.sh once auto-fixes it. After upgrade run diag_box.sh to verify: the CUPS STABILITY section should show cupsd syntax: Syntax OK, BrowseRemoteProtocols present? no, driverless backend: disabled, crashes=0, Bad line=0.",
+        "diag_box.sh enhancements: added cupsd -t syntax check, illegal-directive scan, and driverless/dnssd backend status display for a quick visual confirmation of whether the fix took effect."
+      ]
+    },
+    {
+      "version": "0.2.33",
+      "date": "2026-10-26",
+      "title": "(Rolled back) Draft: mistakenly added BrowseRemoteProtocols + only Browsing Off → could not stop the crash",
+      "changes": [
+        "This version had the right direction (turn off Browsing, lock A4 default, WebUI self-heal), but its implementation mistakenly appended the illegal directive `BrowseRemoteProtocols none`, causing cupsd to fail parsing and fall back to defaults, so the problem was not solved; superseded by 0.2.34.",
+        "A4 default logic retained: after patch_ppd_defaults injects `*DefaultPageSize: A4`, it uses `lpadmin -o PageSize=A4 -o PageRegion=A4` to also set the queue-level default to A4, ensuring mobile clients default to A4."
+      ]
+    },
+    {
+      "version": "0.2.32",
+      "date": "2026-10-23",
+      "title": "Fix iOS double display + iOS/HarmonyOS missing A4 + repair fully auto-converges (no manual lpadmin -x)",
+      "changes": [
+        "Fixed iOS seeing 'two printers with the same name' (HarmonyOS/Win10 only saw 1): root cause was that the AirPrint static service file explicitly wrote `<subtype>_universal._sub._ipp._tcp</subtype>`, while Avahi auto-synthesizes a same-name subtype for any _ipp._tcp service whose TXT contains image/urf — so the same printer was registered under two subtypes with identical names, and iOS browsing by subtype listed two entries. Now the explicit `<subtype>` is removed, keeping only the base type _ipp._tcp, so only Avahi's auto-synthesized subtype remains and iOS also shows just 1; Mopria/Windows discovery by base type is unaffected. This is the real root cause of 0.2.31's 'iOS double display' (previously mis-attributed to device model/queue).",
+        "Fixed iOS/HarmonyOS paper-size options showing only US Letter/Legal/Env-10 with no A4: root cause was that 0.2.31's A4 default patch only covered the foo2xqx driver, while this box actually uses foo2zjs (an A4 printer) and the default paper stayed at the driver's built-in Letter. Added patch_ppd_defaults(), which uniformly injects `*DefaultPageSize: A4` / `*DefaultPageRegion: A4` into every non-raw (PPD-bearing, paper-producing) queue; if a PPD's *PageSize option has no A4 at all (rare minimal PPDs) it first adds an A4 option then sets it as default. Changes are applied only when A4 is a valid option, never breaking the original PPD. Both the add-printer and repair/republish paths apply it.",
+        "Fixed 'after upgrade the WebUI still shows two printers, do I always need manual lpadmin -x': 0.2.31's repair pruned first (when URIs were still empty, duplicate queues weren't caught) then healed (filling URIs), causing non-convergence and the self-heal thread repeatedly building the same printer as two queues. Now republish_airprint prunes again after healing, and main()'s detection loop dedupes by physical device (preferring serial=) at the source, building only one queue; also added cleanup of leftover AirPrint service files with no matching queue at the end of main(). Result: `printbox repair` now auto-converges multiple printers into 1, no manual lpadmin -x needed.",
+        "foo2xqx's A4 default injection is now handled uniformly by patch_ppd_defaults (removing its duplicate logic inside patch_foo2xqx_ppd); the foomatic wrapper patch for mobile JPEG(0 DPI) blank pages is kept unchanged.",
+        "Note: Win10/iOS/HarmonyOS 'test page/print unresponsive, queue stuck at jobs 59/60/61' is a CUPS→USB job-layer issue; app-layer logs don't contain CUPS error_log job errors. Diagnose on the box with `lpstat -o` / `tail /var/log/cups/error_log` / `lp -d hp_laserjet_p1505n_printbox /usr/share/cups/data/testprint`; see release notes."
+      ]
+    },
+    {
+      "version": "0.2.31",
+      "date": "2026-10-23",
+      "title": "Real fix for 'WebUI shows 3 printers': dedupe by serial normalization + filter parallel:/ fake devices + detect same device only once",
+      "changes": [
+        "0.2.30 still didn't solve the root cause of 'WebUI shows 3 printers': the same USB printer is exposed via both usb:// and hp:/usb backends, with model strings `HP LaserJet P1505n` and `LaserJet P1505n`; the old _uri_key only did shallow normalization (`HP/LaserJet%20P1505n` vs `HP_LaserJet_P1505n` couldn't merge), so two queues hp_laserjet_p1505n_printbox and laserjet_p1505n_printbox were built; plus CUPS lists parallel:/dev/lp0 even with no real parallel printer, which got built as print_printbox. _uri_key now prefers the serial number (serial=KQ12ZY6 is consistent across backends), otherwise folds / _ %20 spaces and strips the vendor prefix to normalize the same physical device to the same key.",
+        "add_printer now reuses an existing queue for the same physical device: even when both usb:// and hp:/usb URIs are detected, they map to a single CUPS queue, never adding a second name.",
+        "main()'s detection loop adds a _uri_key physical-device dedupe guard so the same printer is added only once; and explicitly skips fake backends like parallel:/ and scsi:/ that CUPS lists even without real devices (root cause of print_printbox).",
+        "_is_real_printer no longer treats parallel:/ and scsi:/ as real printers; prune_phantom_printers' local-backend branch deletes fake devices directly (even if they appear in lpinfo -v), and judges generic-name ghost queues by queue-name prefix (print/printer/...), fixing print_printbox being missed because its name had the _printbox suffix; _keeper_score prefers the vendor-prefixed (hp) canonical name, keeping hp_laserjet_p1505n_printbox rather than the short laserjet_p1505n_printbox when deduping.",
+        "Result: `printbox repair` now auto-converges 3 printers into 1 hp_laserjet_p1505n_printbox (deleting laserjet_p1505n_printbox and print_printbox); the WebUI overview shows only one and publishes only one AirPrint instance."
+      ]
+    },
+    {
+      "version": "0.2.30",
+      "date": "2026-10-23",
+      "title": "Fix overview false 'not shared' + fully clear self-referencing DNS-SD ghost queues + self-heal empty URIs + accurate WiFi hints",
+      "changes": [
+        "Fixed the WebUI overview still falsely reporting 'ready · not shared' for correctly shared queues: root cause was get_printer_meta using `lpstat -p` (short format) to judge shared, but short format contains no 'shared' keyword, so it was always False. Now it parses `Shared Yes/No` from /etc/cups/printers.conf (most reliable), falling back to `lpstat -l -p` (long format contains `Shared: Yes`). Now queues that repair set printer-is-shared=true correctly show 'ready · published'.",
+        "Fully clear self-referencing DNS-SD ghost queues: queues like laserjet_p1505n_printbox / print_printbox had URIs of the form ipp://<name>._ipp._tcp.local/ (this box's own AirPrint re-discovered by CUPS's dnssd backend); _dedupe's device-URI merge used a different key than the real usb:// queue so they weren't merged. prune_phantom_printers now adds 'case 4' to directly delete such self-referencing queues, and deletes 'managed-name (_printbox) but empty URI, while the box already has a valid printer' dead queues. iOS/HarmonyOS/Win10 now see only the correct hp_laserjet_p1505n_printbox.",
+        "Fixed repair restarting CUPS causing some queues' DeviceURI to be briefly empty, which stopped AirPrint publishing and caused overview false reports: republish_airprint now prunes first then calls the new _heal_empty_uris(), which re-locates the real device of the same model from lpinfo -v (preferring usb://, skipping self-referencing DNS-SD) and writes it back to the empty URI — equivalent to add_printer's self-heal, never losing a printer.",
+        "Accurate WiFi hints: the WebUI previously said 'NetworkManager not installed' inaccurately — this system actively disables NM at deploy (managed=false + stop service) and switches to wpa_supplicant, while the nmcli binary remains. Now it distinguishes 'not installed' from 'installed but disabled' to avoid misleading the user into reinstalling NM (unnecessary; the wpa_supplicant backend already lists/connects/switches WiFi correctly)."
+      ]
+    },
+    {
+      "version": "0.2.29",
+      "date": "2026-10-23",
+      "title": "Clean up duplicate/dirty printer queues + fix overview false 'no URI configured' + fix history reprint blank page + time format + WiFi connected not shown",
+      "changes": [
+        "Clean up duplicate/dirty printer queues: prune_phantom_printers now dedupes by device URI (usb:// and hp:/usb normalized as the same device), keeping only one queue (double-suffix _printbox_printbox scores lowest, canonical name _printbox preferred), and deletes generic-name ghost queues (print/printer/printers) and double-suffix dirty queues. This solves iOS/HarmonyOS/Win10 simultaneously seeing hp_laserjet_p1505n_printbox, laserjet_p1505n_printbox, print_printbox (the latter two were early mis-builds / self-heal artifacts that couldn't print) — now only the correct one is published.",
+        "Fixed iOS seeing 'the same printer becoming two': root cause was the 'static Avahi service file (base type + subtype)' and 'dynamic avahi-publish fallback (base type only)' broadcasting the same instance simultaneously. _write_airprint_services now stops and disables printbox-airprint-publish.service first, ensuring the static file is the only broadcast source.",
+        "Fixed the WebUI overview falsely reporting the correct queue as 'no URI configured (cannot print)': get_printer_meta now prefers parsing DeviceURI directly from /etc/cups/printers.conf (most reliable), falling back to lpstat -v on failure; each sub-step is independently try-guarded so any single failure only blanks that field, never the whole function. A queue that actually has a URI (lp -d can print) now shows 'ready · published'.",
+        "Fixed history page 'reprint' clicking to a blank page: form action changed from /history to /archive (the POST handler only processes /archive), and re-renders the archive page (including history); reprint now prefers a 'configured URI and non-raw (PPD-bearing)' queue, removing the blind `-o raw` for URF/PWG (blind raw on a PPD queue dumps the original file to the backend producing waste pages/errors).",
+        "Job submit time changed to yyyy-mm-dd HH:MM:SS (24h): no longer shows localized formats like Thu Oct 22; parse lpstat -o's month/day/year/time fragments into ISO time, correctly handling year-at-end cross-year cases.",
+        "Aligned the overview page's 'cancel all jobs for this printer' and 'restart printing service' buttons: the cancel button no longer wraps in an inner div with margin, both now vertically centered in the same flex row.",
+        "Fixed WiFi 'saved networks' not showing the currently connected SSID (e.g. MyHomeWiFi): has_nm changed to check whether NetworkManager is actually running (systemctl is-active) rather than merely whether nmcli exists; list_saved ensures the currently connected SSID is included as the active item regardless of config, so a connected WiFi no longer disappears from the list.",
+        "Deploy reminder (carried from 0.2.27/0.2.28): pip install only replaces on-disk files, it doesn't reload processes; after upgrade you must run `printbox repair` (or `systemctl restart printbox-web printbox-printer-hotplug`).",
+        "Version 0.2.28 → 0.2.29."
+      ]
+    },
+    {
+      "version": "0.2.28",
+      "date": "2026-10-22",
+      "title": "Fix AirPrint not broadcasting (iOS/Win10 can't discover) + fix queue repeatedly flipped to raw by self-heal thread",
+      "changes": [
+        "Fixed iOS / Win10 / HarmonyOS completely unable to discover the printer: the AirPrint Avahi static service file had its subtype element miswritten as `<sub>` (illegal); avahi-daemon reported `didn't expect element <sub>` and discarded the whole file, broadcasting no mDNS at all — so although the AirPrint service 'file existed' it was never externally visible (printbox mdns-check's 'visible' was a false positive — it didn't read avahi's actual rejection). The correct element name is `<subtype>`; fixed. Base type _ipp._tcp serves Mopria/Windows by base-type discovery, subtype _universal._sub._ipp._tcp serves iOS/macOS; both present, no conflict.",
+        "Fixed the root cause of 'queue repeatedly modified, can't print / Win10/iOS test page unresponsive': this box's written AirPrint broadcast gets re-discovered by CUPS's own dnssd backend in `lpinfo -v` as a new device `ipp://<queue>._ipp._tcp.local/`; detect / the self-heal timer thread added it as a 'new printer' every round, and because IPP has highest priority it was selected before the real USB device, while IPP-everywhere couldn't build a PPD → fell back to raw → created a `<queue>_printbox_printbox` double-suffix raw queue, even overwriting the correct queue as raw, manifesting as repeated modifications and receiving data but not printing. Added _is_self_dnssd() at detect time to precisely skip such self-referencing devices (only when the URI's DNS-SD hostname exactly equals an existing queue name on this box, so real network IPP printers are unaffected); added an `endswith('_printbox')` guard to old-queue migration to prevent double-suffix dirty queues.",
+        "Important: after upgrade you must run `printbox repair` (or `systemctl restart printbox-web printbox-printer-hotplug`) to reload processes, otherwise mixed old/new code keeps the problem.",
+        "Version 0.2.27 → 0.2.28."
+      ]
+    },
+    {
+      "version": "0.2.27",
+      "date": "2026-10-22",
+      "title": "Unified big log (no type dropdown / no refresh on switch) + wpa_supplicant WiFi backend + explicit 'must reload service after deploy'",
+      "changes": [
+        "The runtime log page (System / Settings) now shows all component logs unified: web / printer / network / drivers / archive / init are merged in one view segmented by `===== component =====`, dropping the 'component dropdown + switch refreshes page' typed mode (responding to 'don't separate log types, make one unified big log, switching refreshes the page'). Each component defaults to last 200 lines merged; page refresh re-renders the whole block (not a full page reload), no type switching.",
+        "Export button changed to one-click download of the merged log printbox-all.log (GET /api/log?c=all&download=1, serve_log_download's c=all branch already supported); filename fixed to printbox-all.log, no longer exporting per component.",
+        "Important deploy note (responding to 'changed but no effect seen'): pip install only replaces files on disk and does NOT reload the running process. After upgrade you must run `printbox repair` (its [2/3] does `systemctl restart printbox-web` etc.) or explicitly `systemctl restart printbox-web printbox-printer-hotplug`, otherwise the WebUI is still old code — exactly the root cause of 0.2.26's 'seemingly didn't take effect' (old 0.2.25 process in memory kept resetting queues to raw, and the web still rendered old templates).",
+        "WiFi connection management completed (responding to 'this box has no NetworkManager, page only shows install hint, can't really connect/switch WiFi'): added wpa_supplicant backend as the automatic fallback when NM is missing. The WebUI 'Network' page no longer renders the connect form only when NM exists, but always renders the three blocks 'connect to WiFi / saved networks / nearby networks'; when NM is absent a top line says 'NetworkManager not installed, currently managed by wpa_supplicant (wireless only, doesn't touch Ethernet/SSH)', other functions work as usual. Backend auto-routes by has_nm(): current_ssid/list_saved/connect/connect_saved/move/forget all gained _wpa implementations, directly reading/writing /etc/wpa_supplicant/wpa_supplicant-<iface>.conf and enabling wpa_supplicant@<iface> + dhclient/udhcpc/dhcpcd for IP. This only touches the wireless interface, not Ethernet/SSH, matching 'don't break wired/SSH by adding WiFi management'. Note: Debian has no wpa_supplicant@.service template by default; if absent it falls back to running wpa_supplicant in the background (immediate effect, but not systemd-managed, not persistent across reboot); on the box run `apt install wpasupplicant isc-dhcp-client` to verify.",
+        "Version 0.2.26 → 0.2.27."
+      ]
+    },
+    {
+      "version": "0.2.26",
+      "date": "2026-10-22",
+      "title": "Fix 'no URI configured / raw queue not published' recurrence + one-click full log export",
+      "changes": [
+        "Fixed printer 'device URI empty / no URI configured (cannot print)' and the resulting AirPrint non-publishing: root cause was lpinfo transiently returning an empty model field in timing windows right after CUPS restart; _parse_simple only got (uri, ''), and pick_driver fell back to raw when there was no model and the URI wasn't ipp, and a raw queue has no PPD so it neither prints nor gets published to the LAN. Added _model_from_uri(uri) to infer the model from the URI-embedded model (e.g. usb://HP/LaserJet%20P1505n), so _parse_simple feeds pick_driver the real model, eliminating 'empty URI queues' and raw fallback at the source; also hardened _extract_uri to strip trailing 'description' fields (some lpinfo output looks like `uri \"desc\"`) to prevent the description leaking into the URI. This fix plus 0.2.23's _maybe_repoint_uri (auto-write correct URI on empty) form a double safety net.",
+        "Log export changed to one-click full: the WebUI 'runtime log' page dropdown adds an 'All' option; export merges all components (web/printer/network/drivers/archive/init) into a single printbox-all.log download (GET /api/log?c=all&download=1), no longer needing per-component export; the in-page 'All' view also merges each component's recent logs for online troubleshooting.",
+        "Version 0.2.25 → 0.2.26."
+      ]
+    },
+    {
+      "version": "0.2.25",
+      "date": "2026-10-22",
+      "title": "Fix AirPrint status calling wrong module + repair explicitly reports CUPS startup failure",
+      "changes": [
+        "Fixed status_tokens mis-calling DIS.airprint_visible() (the discovery module has no such function; root cause of the WebUI 500 since 0.2.23; 0.2.24 only used try/except as a stopgap, but once a printer appeared it still errored and status display was inaccurate): changed to the correct PS.airprint_visible() (printers module).",
+        "repair no longer silent: when the CUPS scheduler isn't ready it prints an explicit warning pointing to `systemctl status cups` and /var/log/cups/error_log (previously it only logged WARN and still showed 'repair complete', masking the real problem that CUPS wasn't running)."
+      ]
+    },
+    {
+      "version": "0.2.24",
+      "date": "2026-10-22",
+      "title": "Fix WebUI 500 + HarmonyOS/iOS printer weird names + queue name normalization",
+      "changes": [
+        "Fixed whole-page WebUI 500: list_printers guards IndexError on empty lpstat -a lines; all external calls in status_tokens / network_tokens (airprint_visible / get_printer_meta / NS.status / WIFI.*) get try/except stopgaps, any submodule exception only downgrades that block, never the whole page 500 (details still written to /var/log/printbox/web.log).",
+        "Fixed AirPrint service weird names (HarmonyOS showed 'hp_laserjet_p1505n @ /root', iOS showed no name): removed avahi's %h hostname wildcard and the '@' symbol; service instance name / ty / product uniformly use the clean queue name (only [a-z0-9_-]), completely eliminating weird names from hostname resolution anomalies.",
+        "Queue name normalization: newly added printers default to <slug>_printbox (this box hp_laserjet_p1505n_printbox), and detection auto-cleans bare-name queues from 0.2.23 and earlier (e.g. hp_laserjet_p1505n) to avoid two queues coexisting.",
+        "_airprint_visible's two avahi-browse calls get exception stopgaps; missing/timeout avahi-browse no longer propagates."
+      ]
+    },
+    {
+      "version": "0.2.23",
+      "date": "2026-10-22",
+      "title": "Real-device retest 13 items of feedback: fix discovery / network settings / all NICs / auto-publish + speedup",
+      "changes": [
+        "Fixed 'empty device URI causes no paper / iOS·HarmonyOS·Win10 print failure / jobs stuck in queue': _maybe_repoint_uri no longer returns immediately on empty URI, but immediately writes the correct USB URI back via lpadmin(-v) and sets ErrorPolicy=abort-job, eliminating empty URIs at the root (the ultimate root cause of last version's overview falsely showing 'ready' and test pages getting stuck).",
+        "AirPrint LAN publishing changed to 'static retry 3x + avahi-publish dynamic fallback + 15-min timer + startup thread' fully automatic self-heal: ensure_airprint_published first writes the static airprint-*.service and verifies visibility, on failure starts avahi-publish -s as fallback (Restart=always); self_heal_publish hooks into the webapp guard thread, mdns-check subcommand, and printbox-mdns-renew.service (changed to call printbox mdns-check), so it retries repeatedly without manual WebUI (responding to 'if not successful please auto-retry a few times').",
+        "Network parameters gained setting capability (responding to 'can only view, can't change'): the System page 'Network Parameters' card adds a form, default DHCP, can manually switch IPv4 static (address/prefix or subnet mask/gateway/DNS) + IPv6 (auto/dhcp/static/none, with corresponding address/prefix/gateway/DNS), switching NIC instantly refills via /api/net_iface; POST /system act=net_apply writes via ifupdown managed fragment (/etc/network/interfaces.d/printbox-<iface>) and applies with ifdown/ifup.",
+        "NIC details show all NICs: interfaces() defaults include_down=True, so wired/unplugged NICs are also listed (type/status/MAC/IP), not just the active wireless one.",
+        "Overview page 'live print jobs' printer dropdown restored persistent: the cancel-all-jobs dropdown source changed to configured printers (PS.list_printers()), no longer depending on whether a job is running, so it doesn't disappear when the queue is empty.",
+        "Overview page printer status no longer misleading: shows colored badges by four states 'published / not shared / not published to LAN / no URI configured' with explanatory text, clearly distinguishing 'published (phone visible)' from 'only locally ready'.",
+        "Printer details & settings changed to single-row layout: device URI/driver/shared/default use .kvline horizontally side by side (each on one row rather than two), with a red alert appended when URI is empty guiding to detect & add.",
+        "System page 'Update' and 'Power' cards moved to the very bottom of the page (after Web login / runtime logs).",
+        "WebUI speedup (responding to 'slow, feels like hitting the external web'): network.status / discovery.diagnostics get 8s cache, sysinfo.wifi_scan gets 15s cache, reducing ip/avahi-browse/ss re-scans when switching pages and during 30s polling; forms and listening ports use partial refresh, not full page reload."
+      ]
+    },
+    {
+      "version": "0.2.22",
+      "date": "2026-10-22",
+      "title": "Fix mobile still can't print + WebUI layout/renaming (responding to 0.2.21 real-device retest)",
+      "changes": [
+        "Fixed foo2xqx blank-page patch never taking effect: patch_foo2xqx_ppd gated on reading only the first 30000 bytes of the PPD, but foo2xqx's *cupsFilter(\"...foomatic-rip\") line is often at the PPD end (PPD 30KB+), so it returned early — meaning /usr/local/bin/printbox-foo2xqx-pdf was never installed and the PPD never patched, causing iOS/HarmonyOS print failure/white pages (Win10 uses proper PS/PDF, unaffected). Changed to read the full PPD for gating; and fixed filter-line matching: foo2xqx's Foomatic PPD actually uses application/vnd.cups-pdf / application/vnd.cups-postscript (not bare application/pdf), the original condition only recognized application/pdf and missed the real filter line so the PPD still wasn't patched; now any cupsFilter/cupsFilter2 line containing foomatic-rip (PDF/PS input) is redirected to the wrapper script.",
+        "Fixed iOS no name + HarmonyOS can't find: last round registered the AirPrint service only with subtype _universal._sub._ipp._tcp, causing Mopria (HarmonyOS) discovering by base type _ipp._tcp to not find it. Changed to declare 'base type _ipp._tcp + <sub>_universal._sub._ipp._tcp</sub>' together in a single service-group (Apple/avahi standard AirPrint form); iOS/macOS see 1 by subtype, HarmonyOS/Mopria see 1 by base type, and no duplication (duplication only appears when 'one service-group writes two <type>', which was the real cause of 0.2.20's double name).",
+        "pdftopdf location fix: _install_foo2xqx_wrapper originally used shutil.which(\"pdftopdf\") but pdftopdf is a CUPS filter installed in /usr/lib/cups/filter/, not in $PATH, so the patch silently skipped; added _resolve_filter to which first then fall back to the filter directory.",
+        "WebUI layout: overview page 'select printer dropdown' on its own row, 'cancel all jobs for this printer' and 'restart printing service' on another row; printer page 'detect & add printer' and 'print test page' on the same row; printer details & settings: device URI/driver/shared/default each on its own row.",
+        "WebUI renaming & merging: 'Archive & History' → 'History'; 'System & Network' → 'System'; 'Settings & Logs' content (login settings + runtime log export) merged into 'System' page, /settings redirects to /system."
+      ]
+    },
+    {
+      "version": "0.2.21",
+      "date": "2026-10-22",
+      "title": "Responding to real-device feedback 9 items: fix mobile blank pages / duplicate names + WebUI remove full-page refresh + discovery relocated + WiFi list fix + log export",
+      "changes": [
+        "Fixed iOS seeing two same-name printers: the AirPrint service file changed to register only the _universal._sub._ipp._tcp subtype (no longer declaring base type _ipp._tcp simultaneously), eliminating avahi registering the same printer as two records, the iOS duplicate-name listing.",
+        "Fixed mobile (iOS/HarmonyOS) blank pages / HarmonyOS can't print: foo2xqx (host-based) printer got a PDF normalization patch — install /usr/local/bin/printbox-foo2xqx-pdf wrapper script that first runs iOS/HarmonyOS-sent JPEG(0 DPI)→PDF through pdftopdf to reflow page size by the PPD's default A4, then hands to foomatic-rip to render, root-causing aspect=-nan blank pages; any step failure auto-falls back to original behavior, never worse than now; this patch applies to foo2xqx queues on both add-printer and init/repair.",
+        "Removed 'recently completed prints': that display was meaningless and showed the earliest task; removed the related backend and overview render (HTTP 1 requirement).",
+        "Overview page changed to pure display + partial refresh: removed the full-page 'refresh' button; cancel/cancel-all/restart-printing-service all changed to AJAX partial refresh (/api/cancel, /api/cancel_all, /api/restart_cups), no full page reload (HTTP 4 requirement).",
+        "Printer discovery status relocated to the printer page: discovery status (mDNS/AirPrint/WS-Discovery/IPP address/mDNS self-check/per-OS add guide) moved from overview to printer page; overview is display-focused, keeping only necessary action buttons (HTTP 5 requirement).",
+        "Saved / nearby WiFi list fix: list_saved changed to read NetworkManager's system-connections keyfile directly (the authoritative source for saved networks, fixing 'actually connected but shows empty'); wifi_scan added iw dev <iface> scan fallback (fixing 'nearby networks empty'), both keep nmcli/iwlist fallback.",
+        "Saved networks gained actions: each saved network provides 'Connect' and 'Forget' buttons (AJAX), current connection marked 'current'.",
+        "Nearby networks gained connect: each visible SSID provides a 'Connect' button; clicking auto-fills its SSID into the 'switch to new WiFi' SSID input.",
+        "Log export: Settings & Logs page adds 'Export current log (text file)' button, downloads the corresponding component log via /api/log?c=<component>&download=1 (saved in /var/log/printbox, survives power loss)."
+      ]
+    },
+    {
+      "version": "0.2.20",
+      "date": "2026-10-21",
+      "title": "Full dynamic + mobile jobs visible + /settings exception handling",
+      "changes": [
+        "WebUI full dynamic (responding to 'are all pages dynamic now'): System page adds partial refresh for listening ports and saved/nearby WiFi (ports/processes/users every 5s; WiFi scan every 30s to avoid frequent scans wiping a password being typed); Archive & History page adds GET /api/history, history table auto-refreshes every 5s, no full page reload needed.",
+        "Mobile (iOS/HarmonyOS) jobs now visible in WebUI: list_jobs only showed active queues, phone jobs vanish in seconds; added list_recent_completed + GET /api/live returning jobs_done_rows, overview shows 'recently completed prints' (with user/document/size), directly solving 'WebUI doesn't show this task'.",
+        "GET/POST global exception capture: any page (including /settings) render exception writes the full traceback to /var/log/printbox/web.log and returns 500, so curl can grab the real error instead of guessing.",
+        "Version 0.2.19 → 0.2.20."
+      ]
+    },
+    {
+      "version": "0.2.19",
+      "date": "2026-10-21",
+      "title": "Fix mDNS/AirPrint discovery + history always shown + System page process dynamic",
+      "changes": [
+        "mDNS/AirPrint discovery fix (cross-checked against official airprint-generate template): ① AirPrint service file adds _universal._sub._ipp._tcp subtype and Transparent=T so iOS/Mopria recognize it as AirPrint (declaring only _ipp._tcp makes some clients ignore it); ② Fixed avahi socket-activation race — ensure_avahi now stops avahi-daemon.socket+service together then starts the service, ensuring newly written /etc/avahi/services/*.service are cleanly re-read (root cause of 'file exists but avahi-browse can't see it'); ③ discovery self-check changed to retry, avoiding avahi's transient empty result right after restart falsely reporting 'not found'.",
+        "Print history always shown: enabled CUPS PreserveJobHistory=yes (with existing PreserveJobFiles=yes ensuring completed jobs persist longer in lpstat -W completed); and even if the spool original was cleaned by CUPS, the history meta package is still written, guaranteeing 'recent prints' stably appear in history (only no original to download), solving 'history only has old records'.",
+        "System & Network page process/hardware info dynamic: added GET /api/system returning hardware usage and process/user fragments, frontend fetch partial-refreshes every 5s, no full page reload (consistent with overview).",
+        "Dependency cross-verification against reference repos: this box's airprint-generate repo (official tjfontaine template, confirming TXT fields), cups / cups-filters / hplip source for print pipeline checks, avoiding guessing again."
+      ]
+    },
+    {
+      "version": "0.2.18",
+      "date": "2026-10-21",
+      "title": "WebUI changed to dynamic partial refresh + dual-stack listen, root-causing homepage refresh-storm / connection refused / can't click nav",
+      "changes": [
+        "Root cause: overview used setInterval(()=>location.reload(),5000) to fully reload printbox.local every 5s; mDNS occasional jitter amplified into 'connection refused', and if the user clicked nav exactly during reload it got interrupted (symptom: homepage can't enter 'printers', other pages can).",
+        "Changed to dynamic partial refresh: added GET /api/live returning job/status fragments, frontend uses fetch every 5s to update only the job table and status badge, no full reload, no repeated parsing of printbox.local (satisfying 'try dynamic pages, don't hammer http with reload').",
+        "Web service changed from binding only 0.0.0.0 (IPv4) to dual-stack listen (:: with IPV6_V6ONLY off), so when printbox.local resolves to IPv6 it still connects, root-causing 'connection refused'.",
+        "Printing itself not working (phone jobs enter queue but no paper) is a CUPS→USB→printer pipeline issue (driver/PPD/filter), not WebUI scope; needs box-side CUPS diagnosis, this version doesn't guess."
+      ]
+    },
+    {
+      "version": "0.2.17",
+      "date": "2026-10-21",
+      "title": "Remove illegal key publish-hostname and add config self-check, fully root-causing 'avahi exit 255 on unknown key'",
+      "changes": [
+        "Root cause: 0.2.15 wrote the key `publish-hostname` (which avahi doesn't have at all) into the [publish] section (same kind as ServerAliases / publish-hosts-in-file), avahi failed parsing config and crashed with exit 255, all .local dead. 0.2.16 only deleted publish-hosts-in-file, missed publish-hostname, so still failed.",
+        "Removed publish-hostname: this key doesn't exist in avahi; 'publish hostname' is actually controlled by [server].host-name, no separate key needed. [publish] section now keeps only the standard key publish-addresses.",
+        "Added config self-heal _self_heal_avahi_conf(): after writing avahi-daemon.conf, actually launch avahi-daemon once; if startup fails, parse journalctl's `Invalid configuration key \"X\"`, automatically strip X from config and retry, up to 15 times. Any future unknown key is auto-cleared at first sight, no more 'illegal key back-and-forth death'.",
+        "WebUI itself was always fine (printbox-web listens 0.0.0.0:80); the previous 'three addresses won't open' was just avahi death killing two .local resolutions, IP direct (<LAN_IP>) always worked.",
+        "Version 0.2.16 → 0.2.17."
+      ]
+    },
+    {
+      "version": "0.2.16",
+      "date": "2026-10-20",
+      "title": "Roll back wrong key, use avahi-publish to stably publish printbox.local (fix 0.2.15 killing whole avahi)",
+      "changes": [
+        "Rolled back 0.2.15's fatal change: 0.2.15 wrote the key `publish-hosts-in-file` (and also non-existent `publish-hostname`) into [publish], causing avahi to fail parsing and daemon exit 255 crash, even <hostname>.local unresolvable, all .local dead (same fatal as 0.2.12's ServerAliases). [publish] now keeps only the truly existing standard key publish-addresses; hostname controlled by [server].host-name.",
+        "Use a reliable mechanism to publish printbox.local: added systemd service printbox-mdns-alias.service, via avahi-utils' `avahi-publish -a -R printbox.local <IP>` to continuously register the alias as this box's LAN IP mDNS address record. This is a community-recognized cross-version reliable approach, no longer depending on uncertain behavior like whether /etc/avahi/hosts is auto-read.",
+        "Alias service set Restart=always, and the 15-min renew timer and ensure_avahi both restart it after avahi restart, so IP change/avahi restart auto re-registers printbox.local.",
+        "ensure_avahi dumps journalctl on avahi startup failure for remote diagnosis; renew service also refreshes the printbox.local alias.",
+        "Version 0.2.15 → 0.2.16."
+      ]
+    },
+    {
+      "version": "0.2.15",
+      "date": "2026-10-20",
+      "title": "Fix printbox.local really taking effect + WebUI cancel button dead-link white screen",
+      "changes": [
+        "Fixed printbox.local still not opening (real cause): 0.2.14 had correctly written '<LAN_IP> printbox' into /etc/avahi/hosts, but avahi defaults publish-hosts-in-file=no and doesn't read that file at all, so the alias was never announced (<hostname>.local works via host-name). Adding publish-hosts-in-file=yes (and publish-hostname=yes) to [publish] in _ensure_avahi_hostname made printbox.local actually announced.",
+        "Fixed WebUI cancel button white screen / jobs not deleted: the cancel and cancel-all form actions were miswritten as /jobs, but do_POST only handles cancel/cancel_all in the path=='/' branch, POST /jobs fell into a 302 empty-response dead link, cancel never executed. Changed to action='/', cancel restored.",
+        "Added timeout (10/15s) to printqueue.cancel_job / cancel_all to prevent an anomalous job hanging the cancel subprocess and consequently the web thread (also a possible cause of 'no response for a long time').",
+        "Version 0.2.14 → 0.2.15."
+      ]
+    },
+    {
+      "version": "0.2.14",
+      "date": "2026-10-20",
+      "title": "Fix 0.2.13 remaining three: printbox.local still won't open / ghost printer print still there / print history out of order",
+      "changes": [
+        "Fixed printbox.local still won't open: 0.2.13's _lan_ip() only probed 8.8.8.8 via UDP for the box IP; when the box is on a pocket WiFi / closed network with no public internet, it returned empty, so _publish_printbox_alias silently skipped, /etc/avahi/hosts never written, printbox.local never announced. Changed to prefer hostname -I, fall back to ip -4 addr, last resort public-net probe, so it correctly gets the LAN IP even offline.",
+        "Fixed ghost printer print still not deleted: 0.2.13's prune_phantom_printers only deleted queues 'local backend (usb:///hp:/usb etc) and device not in lpinfo -v', while the early mis-built print queue had a network backend URI (ipp/socket/dnssd etc), not in the whitelist so missed, continued being broadcast by AirPrint (iPhone seeing empty name, printing blank pages was exactly selecting it). Added 'generic-name ghost queue' rule: queues named print/printer/printers etc are 100% PrintBox mis-builds, never user-named, deleted regardless of backend, and clean up corresponding AirPrint service files.",
+        "Fixed print history out of order: list_archive_jobs originally sorted by archived_at string, but batch-archived jobs within the same second have identical timestamps, order jumped with os.listdir. Changed to sort by archive file mtime (sub-second precision) descending, ensuring newest print stably first.",
+        "Version 0.2.13 → 0.2.14."
+      ]
+    },
+    {
+      "version": "0.2.13",
+      "date": "2026-10-20",
+      "title": "printbox.local reliable alias + clean ghost printers (fix iPhone empty device name/print failure, HarmonyOS can't find)",
+      "changes": [
+        "printbox.local switched to avahi's officially supported static hostname mechanism: writing '<LAN_IP> printbox' into /etc/avahi/hosts, avahi stably announces printbox.local resolving to this box; completely replaces the previous unreliable device-info service hack (never announced on this box's avahi build, making printbox.local flaky).",
+        "Cleaned up old printbox-alias.service residue to avoid duplicate with the hosts mechanism.",
+        "Added printbox prune command (and repair auto-calls it): delete CUPS ghost queues 'local backend and device no longer in lpinfo -v' (typically early mis-built bare-name print queues whose USB URI long gone), and clean their AirPrint service files. Network printers (ipp/socket/lpd/http/dnssd) excluded to avoid accidental deletion.",
+        "republish_airprint added protection: skip PPD-less bare queues (can't print, not published to AirPrint), and clean leftover airprint-*.service files with no matching printer, avoiding dead queues continuing to broadcast.",
+        "AirPrint service TXT record removed non-standard fields (priority/air), keeping only Apple-required txtvers/qtotal/rp/ty/adminurl/note/product/pdl/URF/Color/Duplex/paper, improving iOS/macOS/HarmonyOS recognition stability.",
+        "Detection naming fallback changed to derive from device URI (e.g. usb_hp_laserjet_p1505n), no longer bare name print, preventing future ghost queues.",
+        "Version 0.2.12 → 0.2.13."
+      ]
+    },
+    {
+      "version": "0.2.12",
+      "date": "2026-10-20",
+      "title": "Fix two real 0.2.11 bugs: avahi completely won't start + Web homepage/printer page crash",
+      "changes": [
+        "Fixed avahi completely won't start fatal bug: 0.2.11 wrote ServerAliases=printbox into avahi-daemon.conf's [server] section, but this box's Debian trixie avahi doesn't recognize that key, directly exiting with status 255, mDNS all dead, phone/PC can't find printer. Removed that key (reverted to device-info service file publishing printbox.local best-effort), and added ServerAliases to _ensure_avahi_hostname's cleanup list, ensuring re-running repair/init completely deletes the key from old config.",
+        "Fixed Web homepage (overview) and printer page crash: 0.2.10 merge mistakenly called module-level function status_tokens() as instance method self.status_tokens() in overview_tokens/printers_page_tokens, causing every request to throw AttributeError, browser got no page. Fixed to call module function status_tokens() directly.",
+        "0.2.10 changelog's 'ServerAliases is avahi 0.8 official hostname alias mechanism' description is inaccurate (this build doesn't support it), reverted this version; printbox.local now best-effort published by device-info service, stable address still use <hostname>.local.",
+        "Version 0.2.11 → 0.2.12."
+      ]
+    },
+    {
+      "version": "0.2.11",
+      "date": "2026-10-19",
+      "title": "Fix interrupted install causing WebUI down/phone can't find + disable NM takeover + Chinese display fix",
+      "changes": [
+        "Fixed interrupted install root cause: 0.2.10 pulled network-manager into default install, its postinst starts and takes over all NICs, triggering IP changes repeatedly in pocket WiFi/DHCP environments, wiping the running install/SSH session, causing provision to not finish (WebUI service not up, avahi not published → phone can't find printer).",
+        "Added _stabilize_networking(): writes /etc/NetworkManager/conf.d/printbox-unmanaged.conf (managed=false) as double protection, and disables NetworkManager service after dependencies installed — keeping only the nmcli binary (WebUI won't falsely report 'not installed'), SSID detection via iw, NICs back to ifupdown/wpa_supplicant original management, IP stable.",
+        "Added printbox repair command (and init --no-apt): completely skips apt, only re-does config/start services/re-publish printer to LAN, designed for 'remedy after interrupted init', avoiding repeated network stalls.",
+        "Fixed potential bug: init.py previously called discovery.write_wsdd_unit but never imported discovery (swallowed by try/except), WSD actually never configured; now imports discovery at module top, repair and init both correctly publish WSD.",
+        "Chinese display fix: added _ensure_locale_and_fonts(), sets system locale to C.UTF-8 (/etc/default/locale, /etc/environment, /etc/profile.d), and best-effort installs Chinese font fonts-wqy-zenhei, fixing command-line Chinese showing as ◆ (tofu blocks); note: the SSH client itself also needs Chinese font enabled.",
+        "features text unchanged (still 6 sections); this is stability & usability fixes."
+      ]
+    },
+    {
+      "version": "0.2.10",
+      "date": "2026-10-19",
+      "title": "WebUI five-group merge + printbox.local stabilization + empty print history fix + WiFi installed by default",
+      "changes": [
+        "WebUI nav merged from 12 items to 6: Overview (status+jobs+discovery) / Printers (printers+print settings) / Archive & History (archive+print history) / System & Network (system+network) / Settings & Logs (settings+logs) / About; old paths (/jobs /discovery /history /network /logs /printing) keep redirects for bookmark compatibility.",
+        "printbox.local stabilization: _ensure_avahi_hostname() adds ServerAliases=printbox to [server] (avahi 0.8 official hostname alias mechanism), replacing the old device-info service 'luck-based' contention for printbox.local, completely solving brand-domain resolution flakiness.",
+        "Disabled CUPS duplicate broadcast: _ensure_cups_lan() appends BrowseLocalProtocols none, stopping CUPS itself re-registering _ipp._tcp, eliminating collision with PrintBox's explicit AirPrint service file (root cause of log 'Failed to add service ... _ipp collision').",
+        "Fixed empty print history (core bug): archive_one's regex ^d{jid}$ only matched d12, but CUPS spool filenames are 5-digit zero-padded d00012, never matched → file not found → not archived; changed to ^d0*{jid}(?:-\\d+)?$ to accept any zero-padding.",
+        "Ensured PreserveJobFiles=yes is explicitly enabled at provision stage (after CUPS stable), not only when 'adding printer', avoiding missing it when a printer already exists and history having no original to grab.",
+        "WiFi installed by default: CORE_APT adds network-manager and iw, new/fresh install gains WiFi management and SSID detection (Debian default NM won't take over interfaces already in /etc/network/interfaces, very low risk); old machines run `sudo apt-get install -y network-manager iw` to catch up.",
+        "features text synced: Web admin UI entry changed to merged 6 sections."
+      ]
+    },
+    {
+      "version": "0.2.9",
+      "date": "2026-10-19",
+      "title": "Thoroughly fix avahi config (publish-addresses in wrong section caused mDNS still all dead)",
+      "changes": [
+        "Root cause (deeper than 0.2.8): 0.2.8 wrote publish-hostname/publish-addresses into [server] section, but publish-addresses belongs to [publish] section; avahi still reported Invalid configuration key publish-addresses in group server and exit 255, mDNS still all dead, phone/PC still can't find printer.",
+        "Fix: _ensure_avahi_hostname() only touches standard and cross-version-valid keys — [server] writes host-name/use-ipv4/use-ipv6, [publish] writes publish-addresses=yes; and thoroughly removes non-standard publish-hostname (use standard host-name= to publish hostname).",
+        "Verified: constructing bad config (publish-addresses in [server]) and running the fix logic, avahi-daemon -c passed, [server]/[publish] key-values correct.",
+        "Note: machines already installed with 0.2.8 must first fix /etc/avahi/avahi-daemon.conf (republish doesn't rewrite config, can't self-heal), then restart avahi-daemon; or reinstall 0.2.9 then `sudo printbox init` auto-fixes."
+      ]
+    },
+    {
+      "version": "0.2.8",
+      "date": "2026-10-19",
+      "title": "Fix LAN discovery failure (avahi config corrupted causing mDNS all dead + fresh-install timing)",
+      "changes": [
+        "Root cause A (fatal): 0.2.6's _ensure_avahi_hostname() appended missing keys to the file end, but Debian default avahi-daemon.conf ends with [rlimits] section, so publish-hostname fell under [rlimits]; avahi reported 'Invalid configuration key publish-hostname in group rlimits' and exit 255, mDNS all dead, phone/PC can't find printer (the same code that introduced the regression of requirement 4's .local instability).",
+        "Fix A: rewrote _ensure_avahi_hostname(), first removing any residue of all target keys (including comments), then ensuring [server] section exists and correctly writing host-name/publish-hostname/publish-addresses/use-ipv4/use-ipv6 into [server] section head, preventing falling into wrong section.",
+        "Root cause B: provision() originally ran 'detect printer' (step 4) before 'CUPS stabilization' (step 5); on a fresh rm -rf reinstall CUPS first start is slow, within the 5s window lpinfo returns empty → queue not built → nothing to publish to LAN.",
+        "Fix B: moved CUPS stabilization (config/enable/restart/wait timeout 30s→60s) before 'detect printer', detect after CUPS stable.",
+        "Root cause of slow command: avahi not starting caused republish to repeatedly fail-restart + 6s avahi-browse poll + journalctl, recovered after Fix A.",
+        "Important fix: machines installed with 0.2.7 can't rely on detect+republish to recover — because config was corrupted. Must first fix /etc/avahi/avahi-daemon.conf (see instant-fix commands below), then `systemctl restart avahi-daemon`; or reinstall 0.2.8 then `sudo printbox init` auto-fixes."
+      ]
+    },
+    {
+      "version": "0.2.7",
+      "date": "2026-10-19",
+      "title": "Add 'Print Jobs' page: live queue + cancel job + restart printing service",
+      "changes": [
+        "Added 'Print Jobs' page (new nav entry): live display of CUPS current active/queued jobs (printer/job ID/user/document/size/submit time) and each printer's status (ready/printing/disabled).",
+        "Each job provides a 'Cancel' button; can 'cancel all jobs for this printer' by printer (equivalent to command-line cancel -a).",
+        "Added 'Restart printing service' button: only restarts CUPS (systemctl restart cups), distinct from the existing 'restart whole system', solving HarmonyOS-submitted jobs stuck in queue causing printer repeated clicking but no paper.",
+        "Page supports manual 'Refresh' and 'auto-refresh (5s)' toggle for observing live queue.",
+        "All write operations (cancel/restart) strictly whitelist-validate job IDs and printer names and call subprocesses as a list, preventing command injection.",
+        "Note: when devices like HarmonyOS submit prints, if the client doesn't receive an explicit 'accepted' receipt it may resubmit, getting stuck in the CUPS queue — this is a server-side queue issue (not HarmonyOS itself); this page provides a visual cleanup entry."
+      ]
+    },
+    {
+      "version": "0.2.6",
+      "date": "2026-10-18",
+      "title": "Network page redo + System page slim + print history preview polish + mDNS stability hardening",
+      "changes": [
+        "Network page (renamed from WiFi page): changed to backend-agnostic reading of real status — directly reads NICs, routes, gateway, DNS, listening ports via ip/iw/ss/proc/sys; correctly displays whether wired or wpa_supplicant manual WiFi, no longer falsely reports '(not connected)'.",
+        "Wired priority always higher than WiFi: active_interface() prefers Ethernet among default-route interfaces, convenient for plugging cable to take over on failure.",
+        "Network page adds: current internet NIC, each NIC type/status/MAC/IP, default gateway, DNS, WiFi SSID, listening ports & networked-process table (80/631/5353/22/53/3702).",
+        "WiFi connection management only enabled when NetworkManager (nmcli) detected; clear hint when NM not installed, status display unaffected.",
+        "System page: removed network info duplicated with network page, added CPU/memory/disk model+capacity/system processes/logged-in users+login method etc.",
+        "Print history: on open auto-catches possibly-missed jobs (run_once); preview supports PDF/images(png/jpg/gif/bmp/webp/tiff)/text/web pages, urf/pwg/ps attempted via urftopdf/gs to PDF then preview, other formats provide download.",
+        "Preview changed to full-screen overlay (only one at a time, next only after close, releases resources on close), supports Esc to close.",
+        "mDNS stability: provision idempotently hardens /etc/avahi/avahi-daemon.conf (publish-hostname/publish-addresses/use-ipv4/ipv6), and adds printbox-mdns-renew timer to SIGHUP avahi every 15 min to re-announce, solving <hostname>.local failing after two days."
+      ]
+    },
+    {
+      "version": "0.2.5",
+      "date": "2026-10-16",
+      "title": "Fix CUPS only listening on localhost causing LAN devices can't connect to 631 (found but can't connect)",
+      "changes": [
+        "Root cause: Debian default cupsd.conf is Listen localhost:631, only listening on 127.0.0.1:631; LAN devices connecting <host>:631 get connection refused, manifesting as iPhone/Win10 can find printer but can't add, http://<IP>:631/printers refuses connection.",
+        "Fix: added _ensure_cups_lan(), idempotently replaces localhost-only Listen with Port 631 (listen all NICs), and injects Allow from @LOCAL into <Location /> and <Location /printers>, enabling Browsing as fallback.",
+        "Added: end of provision() marks built printer queues printer-is-shared=true, ensuring LAN clients can submit jobs.",
+        "Verification points: after deploy on <hostname> `ss -tulnp | grep ':631'` should show *:631 (or 0.0.0.0:631); Win10 `Test-NetConnection <IP> -Port 631` should TcpTestSucceeded=True; browser opening http://<IP>:631/printers should load.",
+        "Note: Win10 'Network' 0x80070035 SMB error is unrelated to this print service (this box provides no Windows file sharing); printer discovery uses WSD(wsdd2)/IPP, not SMB."
+      ]
+    },
+    {
+      "version": "0.2.4",
+      "date": "2026-10-16",
+      "title": "Fix Win10-side WS-Discovery (wsdd2) crash on start + iOS AirPrint still needs image/urf",
+      "changes": [
+        "Root cause: wsdd2's -b parser splits each segment only on the first colon key:value, and value can't contain another colon; our presentationurl:http://IP:631/printers/ has multiple colons → reported Bad key:val and exit 1, causing Win10 'Network' to not see the host.",
+        "Fix: removed presentationurl from wsdd2's -b metadata (URL must contain '://' and can't be carried); vendor/model/serial contain no colons, kept; presentationurl only affects WSD attribute echo, not essential for discovery.",
+        "iOS/macOS AirPrint probe forcibly requires TXT pdl to contain image/urf; with only application/pdf iOS directly hides the device; changed pdl to application/pdf,image/urf.",
+        "Debian trixie default repo only has wsdd2 (christgau/wsdd not in its repo), so keep wsdd2 path; Win10 printer auto-add still uses IPP fallback address http://<IP>:631/printers/<name>.",
+        "Verification: avahi-browse already shows hp_laserjet_p1505n @ <hostname>; journalctl confirms AirPrint service successfully established."
+      ]
+    },
+    {
+      "version": "0.2.3",
+      "date": "2026-10-16",
+      "title": "Fix AirPrint service file rejected by avahi (mismatched tag) + fix WS-Discovery unit",
+      "changes": [
+        "Root cause: write_airprint_service used open('w') truncate then write line by line, avahi's inotify read the half-file → reported 'mismatched tag' and rejected loading, causing phone/PC can't find printer.",
+        "Changed to: assemble in memory → expat self-check before write → write temp file → atomic rename (avahi only ever sees complete file); avahi restart unified to once after all writes done.",
+        "Fixed WS-Discovery (systemd) unit: original ExecStart used $(cat ...) but systemd doesn't expand, doesn't go through shell, unit never started; changed to inline all parameters and quote space-containing parameters.",
+        "When wsdd not installed, init stage best-effort apt-installs it (wsdd-server / wsdd), compatible with v1(--host-name) and v2(--hostname).",
+        "Printer model escaped before writing to XML, avoiding special chars breaking XML."
+      ]
+    },
+    {
+      "version": "0.2.2",
+      "date": "2026-10-16",
+      "title": "Full-protocol discovery + discovery page (AirPrint/mDNS fix + WS-Discovery)",
+      "changes": [
+        "Fixed AirPrint publishing: avahi changed to stop→start clean restart to force re-read service files, solving 'file exists but avahi-browse can't see, phone/PC can't find printer'.",
+        "Added WS-Discovery (wsdd) daemon: Windows / HarmonyOS can auto-see the PrintBox print server in 'Add Printer'.",
+        "Added 'Discovery' page: live display of AirPrint(mDNS) / WS-Discovery status, available IPP print addresses, and add guides by iOS/macOS/Android/HarmonyOS/Windows/Linux.",
+        "Publish failure no longer silent: writes avahi logs and service file content to /var/log/printbox/ for remote diagnosis.",
+        "Stayed generic: single-page printing, multiple printers each published independently (each discovered as independent device, user picks)."
+      ]
+    },
+    {
+      "version": "0.2.1",
+      "date": "2026-10-16",
+      "title": "WiFi management page (switch network + saved-network priority/fallback)",
+      "changes": [
+        "Added 'WiFi' page: connect to new WiFi (SSID + password), and list nearby networks for direct connect.",
+        "Saved networks sorted by 'priority', higher connects first; connecting new WiFi doesn't delete old config, auto-falls back to next available network when can't connect (consistent with phones).",
+        "Support adjusting priority (↑/↓) for saved networks, one-click connect, forget (current connection not deletable).",
+        "After switching WiFi, re-publish AirPrint with new IP automatically, LAN printing uninterrupted."
+      ]
+    },
+    {
+      "version": "0.2.0",
+      "date": "2026-10-16",
+      "title": "WebUI adds Print Settings / System / About three major sections",
+      "changes": [
+        "Added 'Print Settings' page: view and modify printer settable options (paper/duplex/color/resolution etc, dynamically exposed by PPD), can set default printer.",
+        "Added 'System' page: hardware usage (CPU/memory/disk/temp/load/uptime), network info, WiFi scan, system upgrade (apt) and PrintBox upgrade.",
+        "Added 'About' page: version number, features, version & changelog, can maintain release content here later.",
+        "Fixed phone can't find printer: ensure avahi-daemon running, and provide 'Re-publish to LAN (AirPrint)' one-click to regenerate Avahi service files.",
+        "AirPrint service file changed to PPD real model name, pdl declared as application/pdf (CUPS does PDF→printer format conversion)."
+      ]
+    },
+    {
+      "version": "0.1.9",
+      "date": "2026-10-15",
+      "title": "Diag script fix and URI correction robustness",
+      "changes": [
+        "diag.sh fixed URI correction grep anchor error (lpinfo -v line starts with direct not usb://).",
+        "diag.sh added root check and PATH prepend, avoiding command-not-found under normal user.",
+        "Detection self-heal: an existing printer with correct driver but currently non-optimal URI (e.g. hp:/usb with foo2zjs) auto-corrected to usb://."
+      ]
+    },
+    {
+      "version": "0.1.8",
+      "date": "2026-10-15",
+      "title": "Root-cause fix: single job prints multiple pages",
+      "changes": [
+        "Fixed device URI priority: USB standard backend usb:// higher than HPLIP private backend hp:/usb.",
+        "HPLIP backend with foo2zjs/foo2xqx repeatedly resends data causing 'single job multiple pages'; now prefer standard usb://."
+      ]
+    },
+    {
+      "version": "0.1.7",
+      "date": "2026-10-15",
+      "title": "Fix cups-driverd crash source",
+      "changes": [
+        "Removed printer-driver-indexbraille's broken .defs file (would crash cups-driverd, scheduler repeatedly shutting down)."
+      ]
+    },
+    {
+      "version": "0.1.6",
+      "date": "2026-10-15",
+      "title": "Fix orphan subscription causing no paper",
+      "changes": [
+        "Cleaned cups-browsed leftover orphan dbus:// subscription cache, restoring CUPS stability."
+      ]
+    },
+    {
+      "version": "0.1.5",
+      "date": "2026-10-15",
+      "title": "Fix USB periodic dropout",
+      "changes": [
+        "udev rules and diag script permanently disable USB autosuspend (root cause of host-based printer wakeup-fail being reset)."
+      ]
+    },
+    {
+      "version": "0.1.4",
+      "date": "2026-10-15",
+      "title": "Fix non-stop printing / infinite reprint",
+      "changes": [
+        "All printers default ErrorPolicy=abort-job, erroneous jobs abort immediately instead of retrying infinitely."
+      ]
+    },
+    {
+      "version": "0.1.3",
+      "date": "2026-10-15",
+      "title": "Fix cups-browsed subscription storm",
+      "changes": [
+        "Disabled cups-browsed by default (root cause of Create-Printer-Subscriptions loop dragging down the scheduler).",
+        "Persistently raised MaxSubscriptions cap as defense."
+      ]
+    },
+    {
+      "version": "0.1.2",
+      "date": "2026-10-15",
+      "title": "Initial usable version",
+      "changes": [
+        "CUPS auto-detect/add printer, driver auto-match, WebUI status/printers/archive/history/settings/logs."
+      ]
+    }
+  ]
+}

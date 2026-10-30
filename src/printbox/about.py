@@ -15,7 +15,18 @@ def _pkg_path():
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "about.json")
 
 
-def load_about():
+def load_about(lang="zh"):
+    # 英文版：优先读取打包的 about_en.json（若存在），管理员在设备上就地编辑仍以中文 about.json 为准
+    if lang == "en":
+        en_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "about_en.json")
+        if os.path.exists(en_path):
+            try:
+                with open(en_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                data.setdefault("version", __version__)
+                return data
+            except Exception:
+                pass
     state_path = os.path.join(C.STATE_DIR, "about.json")
     for p in (state_path, _pkg_path()):
         if os.path.exists(p):

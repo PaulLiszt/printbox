@@ -25,6 +25,9 @@ SPOOL = "/var/spool/cups"  # CUPS 默认 spool
 PKG_DIR = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_CONFIG = {
+    # Web 界面语言：zh=中文（默认），en=英文。切换后写入本文件，重启不丢。
+    # Web UI language: zh=Chinese (default), en=English. Persisted here, survives reboot.
+    "lang": "zh",
     # 留空则运行时取系统主机名（仅用于 Web 展示 http://<host>.local）
     "hostname": "",
     # Web 管理界面是否要求登录（默认关闭，局域网内可直接访问）

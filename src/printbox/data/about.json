@@ -16,6 +16,16 @@
   ],
   "changelog": [
     {
+      "version": "0.2.54",
+      "date": "2026-10-30",
+      "title": "WebUI 英文版 + 语言切换（重启持久化）",
+      "changes": [
+        "新增 Web 管理界面英文版：页面右上角提供「中文 / EN」切换，所有导航、标签、按钮、状态徽章、API 消息与关于页（含完整更新日志）均提供英文；zh 路径完全不变，零回归。",
+        "语言选择写入 /etc/printbox/config.json 的 lang 字段，重启小主机后依然保留，不会回到中文。",
+        "实现方式：少数多行长段落走 [[i18n:KEY]]（STRINGS 中英双版），其余短标签 / 动态片段 / JS / API 消息走 PHRASES 短语词典，按长度降序替换以避免短词误伤长词。"
+      ]
+    },
+    {
       "version": "0.2.34",
       "date": "2026-10-26",
       "title": "回归修复 0.2.33：删非法 BrowseRemoteProtocols 指令 + 真正禁用 driverless 后端止崩",

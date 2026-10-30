@@ -38,6 +38,7 @@ from . import about as AB
 from . import discovery as DIS
 from . import printqueue as PQ
 from . import __version__
+from . import i18n as I18N
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEB = os.path.join(HERE, "web")
@@ -86,7 +87,7 @@ def token_replace(tpl, tokens):
     return out
 
 
-def render(tpl_name, tokens):
+def render(tpl_name, tokens, lang=I18N.DEFAULT_LANG):
     with open(os.path.join(TPL, tpl_name), "r", encoding="utf-8") as f:
         frag = f.read()
     frag = token_replace(frag, tokens)
@@ -102,6 +103,11 @@ def render(tpl_name, tokens):
                .replace("[[NAV_SYSTEM]]", nav["system"]) \
                .replace("[[NAV_SETTINGS]]", nav["settings"]) \
                .replace("[[NAV_ABOUT]]", nav["about"])
+    # 多语言：先解析模板里的 [[i18n:KEY]]（长段落），再短语替换其余中文标签
+    page = I18N.render_i18n(page, lang)
+    if lang != I18N.DEFAULT_LANG:
+        page = I18N.translate(page, lang)
+        page = page.replace('<html lang="zh-CN">', '<html lang="en">')
     return page
 
 
@@ -202,7 +208,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _json(self, ok, msg):
         """返回 JSON 响应（供 AJAX 动作接口使用）。"""
-        body = json.dumps({"ok": bool(ok), "msg": str(msg)}).encode("utf-8")
+        lang = load_cfg().get("lang", I18N.DEFAULT_LANG)
+        body = json.dumps({"ok": bool(ok), "msg": I18N.translate_msg(str(msg), lang)}).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
@@ -225,10 +232,17 @@ class Handler(BaseHTTPRequestHandler):
         if not check_auth(self):
             return auth_head(self)
         path = urllib.parse.urlparse(self.path).path
+        # 语言切换：?lang=zh|en 写入配置并重定向到干净路径（重启不丢）
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        req_lang = q.get("lang", [""])[0]
+        if req_lang in I18N.SUPPORTED:
+            I18N.set_lang(req_lang)
+            return self._redirect(path)
+        lang = load_cfg().get("lang", I18N.DEFAULT_LANG)
         if path == "/static/style.css":
             return self.serve_static()
         if path == "/api/status":
-            return self._send(200, json.dumps(status_tokens()), "application/json")
+            return self._send(200, json.dumps(I18N.translate_obj(status_tokens(), lang)), "application/json")
         if path == "/api/live":
             # 动态局部刷新：只返回任务/状态片段，前端用 fetch 更新，不再整页重载 printbox.local
             s = status_tokens()
@@ -241,6 +255,7 @@ class Handler(BaseHTTPRequestHandler):
                 "jobs_cups_state": j["cups_state"],
                 "jobs_cups_badge": j["cups_badge"],
             }
+            data = I18N.translate_obj(data, lang)
             body = json.dumps(data).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -255,6 +270,7 @@ class Handler(BaseHTTPRequestHandler):
             data = {"hw": t["hw"], "proc": t["proc"], "users": t["users"],
                     "listening": t["listening"], "wifi_connect": t["wifi_connect"],
                     "wifi_saved": t["wifi_saved"], "wifi_avail": t["wifi_avail"]}
+            data = I18N.translate_obj(data, lang)
             body = json.dumps(data).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -280,6 +296,7 @@ class Handler(BaseHTTPRequestHandler):
             # 归档与历史页动态局部刷新：只返回历史表格片段，前端 fetch 更新，不整页重载
             h = self.history_tokens()
             data = {"rows": h["rows"], "count": h["count"]}
+            data = I18N.translate_obj(data, lang)
             body = json.dumps(data).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -293,21 +310,21 @@ class Handler(BaseHTTPRequestHandler):
             return self.serve_log_download()
         if path == "/":
             return self._send(200, render("overview.html", {**self.overview_tokens(),
-                "title": "概览", "active": "home"}))
+                "title": "概览", "active": "home"}, lang))
         if path == "/printers":
             return self._send(200, render("printers.html", {**self.printers_page_tokens(),
-                "title": "打印机", "active": "printers"}))
+                "title": "打印机", "active": "printers"}, lang))
         if path == "/archive":
             return self._send(200, render("archive.html", {**self.archive_page_tokens(),
-                "title": "历史", "active": "archive"}))
+                "title": "历史", "active": "archive"}, lang))
         if path == "/system":
             return self._send(200, render("system.html", {**self.system_page_tokens(),
-                "title": "系统", "active": "system"}))
+                "title": "系统", "active": "system"}, lang))
         if path == "/settings":
             # 设置与日志已并入“系统”页，直接跳转过去
             return self._redirect("/system")
         if path == "/about":
-            return self._send(200, render("about.html", self.about_tokens()))
+            return self._send(200, render("about.html", self.about_tokens(lang), lang))
         if path == "/archive/file":
             return self.serve_archive_file()
         # 旧路径重定向到合并后的对应页面，兼容书签
@@ -320,7 +337,7 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/network", "/wifi"):
             return self._redirect("/system")
         return self._send(200, render("overview.html", {**self.overview_tokens(),
-            "title": "概览", "active": "home"}))
+            "title": "概览", "active": "home"}, lang))
 
     def do_POST(self):
         try:
@@ -1362,8 +1379,8 @@ class Handler(BaseHTTPRequestHandler):
         }
 
     # ---------- 关于 ----------
-    def about_tokens(self):
-        data = AB.load_about()
+    def about_tokens(self, lang=I18N.DEFAULT_LANG):
+        data = AB.load_about(lang)
         ver = __version__
         feats = "".join(f"<li>{html.escape(f)}</li>" for f in data.get("features", [])) \
             or '<li class="muted">（暂无）</li>'
@@ -1477,7 +1494,8 @@ PAGE = """<!DOCTYPE html>
 <link rel="stylesheet" href="/static/style.css"></head>
 <body>
 <header><h1>PrintBox 打印服务器</h1>
-<span class="url">[[SELF_URL]]</span></header>
+<span class="url">[[SELF_URL]]</span>
+<span class="langswitch"><a href="?lang=zh">中文</a> · <a href="?lang=en">EN</a></span></header>
 <nav>
   <a href="/"[[NAV_HOME]]>概览</a>
   <a href="/printers"[[NAV_PRINTERS]]>打印机</a>
