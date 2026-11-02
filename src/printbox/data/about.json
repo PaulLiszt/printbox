@@ -16,6 +16,11 @@
   ],
   "changelog": [
     {
+      "version": "0.2.55",
+      "title": "新增插件系统：复用 Debian apt 与 Docker 生态，可一键导入 CasaOS/Umbrel/runtipi 应用",
+      "body": "PrintBox 升级为「宿主运行时 + 插件管理器」。插件分 native(apt 包) 与 container(Docker 镜像) 两类，WebUI 新增「插件」页；提供兼容层把第三方应用商店的 docker-compose 直接转成 PrintBox 插件。内置两个 POC 插件：storage-share（SMB 共享 USB 硬盘 + Time Machine）与 homeassistant（包官方 HA 容器）。"
+    },
+    {
       "version": "0.2.54",
       "date": "2026-10-30",
       "title": "WebUI 英文版 + 语言切换（重启持久化）",

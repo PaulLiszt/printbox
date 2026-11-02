@@ -1,0 +1,9 @@
+services:
+  homeassistant:
+    container_name: printbox-homeassistant
+    image: homeassistant/home-assistant:stable
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - ./config:/config
+      - /etc/localtime:/etc/localtime:ro

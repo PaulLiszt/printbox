@@ -137,6 +137,52 @@ def cmd_version(args):
     print(f"printbox {__version__}")
 
 
+def cmd_plugin(args):
+    _need_root()
+    from . import plugins as PLUGINS
+    PLUGINS.discover()
+    action = getattr(args, "plugin_cmd", None)
+    if action == "list":
+        for p in PLUGINS.list_plugins():
+            state = "已启用" if p["enabled"] else "未启用"
+            caps = ",".join(p["required_capabilities"]) or "-"
+            print(f"  {p['name']:24s} {p['type']:9s} {state:6s} caps={caps}")
+        return
+    if action == "enable":
+        m = next((x for x in PLUGINS.list_plugins() if x["name"] == args.name), None)
+        if not m:
+            print(f"未知插件: {args.name}")
+            return
+        print(f"插件 {args.name} 需要以下权限：{m['required_capabilities']}")
+        if not args.yes:
+            if not sys.stdin.isatty():
+                print("非交互环境请加 --yes 显式确认权限。")
+                return
+            if input("确认启用？(y/N) ").strip().lower() != "y":
+                print("已取消。")
+                return
+        PLUGINS.enable(args.name, confirm_capabilities=m["required_capabilities"])
+        print(f"已启用插件: {args.name}")
+        return
+    if action == "disable":
+        PLUGINS.disable(args.name)
+        print(f"已禁用插件: {args.name}")
+        return
+    if action == "import":
+        import json
+        import shutil
+        manifest = PLUGINS.import_compose(args.compose, args.metadata, name=args.name)
+        dest = os.path.join(PLUGINS.manager.PLUGINS_D, manifest["name"])
+        os.makedirs(dest, exist_ok=True)
+        shutil.copy(args.compose, os.path.join(dest, manifest["compose"]))
+        with open(os.path.join(dest, "plugin.json"), "w", encoding="utf-8") as f:
+            json.dump(manifest, f, indent=2, ensure_ascii=False)
+        print(f"已导入插件 {manifest['name']} 到 {dest}（type=container）。"
+              f"运行 `printbox plugin enable {manifest['name']} --yes` 启用。")
+        return
+    print("未知 plugin 子命令。可用：list / enable / disable / import")
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="printbox", description="PrintBox 无头打印服务器")
     sub = p.add_subparsers(dest="cmd")
@@ -159,6 +205,19 @@ def main(argv=None):
     pa.add_argument("--daemon", action="store_true", help="持续守护运行")
     sub.add_parser("version", help="显示版本")
 
+    p_plugin = sub.add_parser("plugin", help="管理插件（SMB/Time Machine/Home Assistant/第三方容器等）")
+    p_plugin_sub = p_plugin.add_subparsers(dest="plugin_cmd")
+    p_plugin_sub.add_parser("list", help="列出已发现插件")
+    pe = p_plugin_sub.add_parser("enable", help="启用插件（安装依赖 / 拉起服务 / 确认权限）")
+    pe.add_argument("name", help="插件名")
+    pe.add_argument("--yes", action="store_true", help="显式确认所需权限，跳过交互提示")
+    pd = p_plugin_sub.add_parser("disable", help="禁用插件（停服务）")
+    pd.add_argument("name", help="插件名")
+    pi = p_plugin_sub.add_parser("import", help="导入第三方 docker-compose（CasaOS/Umbrel/runtipi）为插件")
+    pi.add_argument("compose", help="docker-compose.yml 路径")
+    pi.add_argument("--metadata", default=None, help="可选的元数据 json（metadata.json / umbrel-app.yml / config.json）")
+    pi.add_argument("--name", default=None, help="覆盖插件名（默认从元数据推断）")
+
     args = p.parse_args(argv)
     if not args.cmd:
         p.print_help()
@@ -179,6 +238,7 @@ def main(argv=None):
         "prune": cmd_prune,
         "guard": cmd_guard,
         "version": cmd_version,
+        "plugin": cmd_plugin,
     }[args.cmd](args)
 
 

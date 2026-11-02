@@ -1,0 +1,28 @@
+{
+  "name": "storage-share",
+  "display_name": {"zh": "存储共享", "en": "Storage Share"},
+  "version": "0.1.0",
+  "type": "native",
+  "description": {
+    "zh": "把 USB 移动硬盘通过 SMB 共享到局域网，并可作为 macOS 时间机器备份目标（fruit 模块）。",
+    "en": "Share a USB drive over SMB to the LAN, and serve it as a macOS Time Machine target via the fruit VFS module."
+  },
+  "license": "MIT",
+  "required_capabilities": ["root", "apt-install"],
+  "apt_packages": ["samba", "samba-vfs-modules"],
+  "systemd_units": ["smbd", "nmbd"],
+  "config_schema": {
+    "share_path": {"type": "path", "default": "/srv/printbox-share",
+      "desc": {"zh": "共享目录（挂载移动硬盘后的路径）", "en": "Share directory (mount point of the USB drive)"}},
+    "timemachine": {"type": "bool", "default": true,
+      "desc": {"zh": "启用 Time Machine 备份", "en": "Enable Time Machine backups"}},
+    "guest_ok": {"type": "bool", "default": true,
+      "desc": {"zh": "允许访客只读访问", "en": "Allow guest read-only access"}}
+  },
+  "web": {
+    "route": "/plugin/storage-share",
+    "template": "page.html",
+    "title": {"zh": "存储共享", "en": "Storage Share"}
+  },
+  "module": "module.py"
+}

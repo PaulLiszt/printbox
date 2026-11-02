@@ -1,0 +1,20 @@
+{
+  "name": "homeassistant",
+  "display_name": {"zh": "智能家居（Home Assistant）", "en": "Smart Home (Home Assistant)"},
+  "version": "0.1.0",
+  "type": "container",
+  "description": {
+    "zh": "直接复用 Home Assistant 官方容器——它本身就是一个插件平台，等于白送上千个设备集成。",
+    "en": "Reuse the official Home Assistant container as-is: it is itself a plugin platform, giving you thousands of device integrations for free."
+  },
+  "license": "see upstream (HA is Apache-2.0)",
+  "required_capabilities": ["root", "docker"],
+  "compose": "docker-compose.yml",
+  "systemd_units": ["printbox-plugin-homeassistant.service"],
+  "web": {
+    "route": "/plugin/homeassistant",
+    "template": "page.html",
+    "title": {"zh": "智能家居", "en": "Smart Home"}
+  },
+  "module": "module.py"
+}

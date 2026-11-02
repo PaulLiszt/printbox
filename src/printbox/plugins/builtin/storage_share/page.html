@@ -1,0 +1,17 @@
+<h2>[[i18n:storage_title]]</h2>
+<p class="muted">[[i18n:storage_desc]]</p>
+[[notice]]
+<form method="post" action="/plugin/storage-share">
+  <label>[[i18n:storage_path_label]]
+    <input type="text" name="share_path" value="[[share_path]]" size="40"
+           placeholder="/srv/printbox-share">
+  </label>
+  <p class="muted">[[i18n:storage_path_hint]]</p>
+
+  <label class="chk"><input type="checkbox" name="timemachine" [[tm_checked]]> [[i18n:storage_tm_label]]</label>
+  <p class="muted">[[i18n:storage_tm_hint]]</p>
+
+  <label class="chk"><input type="checkbox" name="guest_ok" [[guest_checked]]> [[i18n:storage_guest_label]]</label>
+
+  <p><button type="submit">[[i18n:storage_save]]</button></p>
+</form>

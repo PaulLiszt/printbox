@@ -39,6 +39,7 @@ from . import discovery as DIS
 from . import printqueue as PQ
 from . import __version__
 from . import i18n as I18N
+from . import plugins as PLUGINS
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEB = os.path.join(HERE, "web")
@@ -93,7 +94,7 @@ def render(tpl_name, tokens, lang=I18N.DEFAULT_LANG):
     frag = token_replace(frag, tokens)
     active = tokens.get("active", "")
     nav = {k: ' class="active"' if active == k else "" for k in
-           ("home", "printers", "archive", "system", "settings", "about")}
+           ("home", "printers", "archive", "system", "settings", "about", "plugins")}
     page = PAGE.replace("[[TITLE]]", tokens.get("title", "PrintBox")) \
                .replace("[[BODY]]", frag) \
                .replace("[[SELF_URL]]", self_url()) \
@@ -102,8 +103,32 @@ def render(tpl_name, tokens, lang=I18N.DEFAULT_LANG):
                .replace("[[NAV_ARCHIVE]]", nav["archive"]) \
                .replace("[[NAV_SYSTEM]]", nav["system"]) \
                .replace("[[NAV_SETTINGS]]", nav["settings"]) \
-               .replace("[[NAV_ABOUT]]", nav["about"])
+               .replace("[[NAV_ABOUT]]", nav["about"]) \
+               .replace("[[NAV_PLUGINS]]", nav["plugins"])
     # 多语言：先解析模板里的 [[i18n:KEY]]（长段落），再短语替换其余中文标签
+    page = I18N.render_i18n(page, lang)
+    if lang != I18N.DEFAULT_LANG:
+        page = I18N.translate(page, lang)
+        page = page.replace('<html lang="zh-CN">', '<html lang="en">')
+    return page
+
+
+def render_plugin_page(tpl_text, tokens, lang=I18N.DEFAULT_LANG):
+    """渲染插件自有模板（模板文本直接传入，路径由插件自己管理），复用 PAGE 布局与中英翻译。"""
+    frag = token_replace(tpl_text, tokens)
+    active = tokens.get("active", "")
+    nav = {k: ' class="active"' if active == k else "" for k in
+           ("home", "printers", "archive", "system", "settings", "about", "plugins")}
+    page = PAGE.replace("[[TITLE]]", tokens.get("title", "PrintBox")) \
+               .replace("[[BODY]]", frag) \
+               .replace("[[SELF_URL]]", self_url()) \
+               .replace("[[NAV_HOME]]", nav["home"]) \
+               .replace("[[NAV_PRINTERS]]", nav["printers"]) \
+               .replace("[[NAV_ARCHIVE]]", nav["archive"]) \
+               .replace("[[NAV_SYSTEM]]", nav["system"]) \
+               .replace("[[NAV_SETTINGS]]", nav["settings"]) \
+               .replace("[[NAV_ABOUT]]", nav["about"]) \
+               .replace("[[NAV_PLUGINS]]", nav["plugins"])
     page = I18N.render_i18n(page, lang)
     if lang != I18N.DEFAULT_LANG:
         page = I18N.translate(page, lang)
@@ -239,6 +264,8 @@ class Handler(BaseHTTPRequestHandler):
             I18N.set_lang(req_lang)
             return self._redirect(path)
         lang = load_cfg().get("lang", I18N.DEFAULT_LANG)
+        if PLUGINS.dispatch_get(self, path, lang):
+            return
         if path == "/static/style.css":
             return self.serve_static()
         if path == "/api/status":
@@ -359,6 +386,9 @@ class Handler(BaseHTTPRequestHandler):
         get = lambda k: form.get(k, [""])[0].strip()
         keys = list(form.keys())
         path = urllib.parse.urlparse(self.path).path
+        lang = load_cfg().get("lang", I18N.DEFAULT_LANG)
+        if PLUGINS.dispatch_post(self, path, lang, form):
+            return
         act = get("act")
 
         # ---- AJAX 动作接口（返回 JSON，前端局部刷新，不整页重载）----
@@ -1502,6 +1532,7 @@ PAGE = """<!DOCTYPE html>
   <a href="/archive"[[NAV_ARCHIVE]]>历史</a>
   <a href="/system"[[NAV_SYSTEM]]>系统</a>
   <a href="/about"[[NAV_ABOUT]]>关于</a>
+  <a href="/plugins"[[NAV_PLUGINS]]>插件</a>
 </nav>
 <main>[[BODY]]</main>
 <div class="footer">PrintBox · 无头打印服务器</div>
@@ -1526,6 +1557,7 @@ class DualStackHTTPServer(ThreadingHTTPServer):
 
 def main():
     C.ensure_dirs()
+    PLUGINS.init()
     # 首启若未配置则跑一次打印机探测（含驱动自动安装）
     if not PS.list_printers():
         try:

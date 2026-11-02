@@ -16,6 +16,11 @@
   ],
   "changelog": [
     {
+      "version": "0.2.55",
+      "title": "Plugin system: reuse Debian apt & Docker ecosystems; one-click import from CasaOS/Umbrel/runtipi",
+      "body": "PrintBox becomes a host runtime + plugin manager. Plugins are native (apt packages) or container (Docker images); a new Plugins page lands in the WebUI. A compat layer turns third-party app-store docker-compose files into PrintBox plugins directly. Two POC plugins ship built-in: storage-share (SMB share of a USB drive + Time Machine) and homeassistant (wraps the official HA container)."
+    },
+    {
       "version": "0.2.54",
       "date": "2026-10-30",
       "title": "WebUI English version + language switch (persists across reboot)",

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "printbox"
-version = "0.2.54"
+version = "0.2.55"
 description = "Turn a minimal Linux box into a headless print server (CUPS / AirPrint / Mopria / WS-Discovery / WebUI / archive)."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -27,7 +27,9 @@ printbox = "printbox.cli:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
-packages = ["printbox"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.setuptools.package-data]
 printbox = [
@@ -36,4 +38,9 @@ printbox = [
     "data/*.service",
     "data/*.rules",
     "data/*.json",
+    "plugins/*.py",
+    "plugins/builtin/*/plugin.json",
+    "plugins/builtin/*/page.html",
+    "plugins/builtin/*/module.py",
+    "plugins/builtin/*/docker-compose.yml",
 ]
