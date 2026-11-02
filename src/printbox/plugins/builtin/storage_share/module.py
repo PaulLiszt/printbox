@@ -41,15 +41,29 @@ def generate_smb_conf(cfg):
 
 
 def _ensure_include_line():
-    """确保主 smb.conf 包含我们的 drop-in 目录（幂等）。"""
+    """确保主 smb.conf 的 [global] 段包含我们的 drop-in include（幂等）。
+
+    注意：include 必须放在 [global] 段内才生效，追加到文件末尾无效。
+    同时保证 `map to guest = bad user`，否则访客(匿名)写共享会失败。
+    """
     if not os.path.exists(SMB_MAIN):
         return
     with open(SMB_MAIN, "r", encoding="utf-8") as f:
-        content = f.read()
-    marker = "include = %s/*.conf" % SMB_DROPIN_DIR
-    if marker not in content:
-        with open(SMB_MAIN, "a", encoding="utf-8") as f:
-            f.write("\n# PrintBox storage-share\nglobal include = %s/*.conf\n" % SMB_DROPIN_DIR)
+        lines = f.readlines()
+    if any(SMB_DROPIN_DIR in ln for ln in lines):
+        return  # 已注入，幂等退出
+    include_line = "   include = %s/*.conf\n" % SMB_DROPIN_DIR
+    insert = ["# PrintBox storage-share drop-in\n", include_line]
+    if not any("map to guest" in ln for ln in lines):
+        insert.append("   map to guest = bad user\n")
+    # 找到 [global] 段首行，在其后插入；没有就补一个 [global]
+    idx = next((i for i, ln in enumerate(lines) if ln.strip().lower() == "[global]"), None)
+    if idx is None:
+        lines.append("\n[global]\n")
+        idx = len(lines) - 1
+    lines[idx + 1:idx + 1] = insert
+    with open(SMB_MAIN, "w", encoding="utf-8") as f:
+        f.writelines(lines)
 
 
 def install(manifest=None):

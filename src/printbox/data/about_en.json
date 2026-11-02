@@ -16,6 +16,11 @@
   ],
   "changelog": [
     {
+      "version": "0.2.56",
+      "title": "README now documents plugins; fix storage-share Samba include placement",
+      "body": "README gains a Plugins section (SMB example + trust model). The storage-share plugin now writes its smb.conf drop-in `include` directive inside the [global] section and auto-adds `map to guest`, so the share and guest writes actually take effect."
+    },
+    {
       "version": "0.2.55",
       "title": "Plugin system: reuse Debian apt & Docker ecosystems; one-click import from CasaOS/Umbrel/runtipi",
       "body": "PrintBox becomes a host runtime + plugin manager. Plugins are native (apt packages) or container (Docker images); a new Plugins page lands in the WebUI. A compat layer turns third-party app-store docker-compose files into PrintBox plugins directly. Two POC plugins ship built-in: storage-share (SMB share of a USB drive + Time Machine) and homeassistant (wraps the official HA container)."

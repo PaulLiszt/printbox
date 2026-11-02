@@ -76,6 +76,45 @@ Open any of the following addresses in a browser to manage printers, view print 
 - **`http://<主机名>.local`**（你这台机器的主机名，如 `http://myhost.local`）
 - **`http://printbox.local`**（PrintBox 品牌别名，可能需等待数秒生效）
 
+## 插件 / Plugins
+
+PrintBox 从 **0.2.55** 起支持插件：打印核心保持内置，其余功能（SMB 共享、时间机器、下载、智能家居、监控等）以插件形式扩展。插件分两类：
+
+PrintBox supports **plugins since 0.2.55**: the print core stays built-in; other capabilities (SMB share, Time Machine, download, smart home, surveillance…) extend via plugins. Two kinds:
+
+- **native（系统包）/ native (system package)**：插件本体是 Debian apt 包（如 `samba`、`aria2`），PrintBox 只写配置 + 托管 systemd。
+  The app itself is a Debian apt package (e.g. `samba`, `aria2`); PrintBox only writes config and manages systemd.
+- **container（Docker）/ container (Docker)**：直接复用现成镜像（如 Home Assistant、Frigate），PrintBox 只写 compose + 托管 systemd。
+  Reuses an existing image (e.g. Home Assistant, Frigate); PrintBox only writes the compose file and manages systemd.
+
+也可通过 `printbox plugin import` 把 CasaOS / Umbrel / runtipi 商店里的 docker-compose 一键转成 PrintBox 插件，直接复用别人做好的应用。
+You can also run `printbox plugin import` to convert a CasaOS/Umbrel/runtipi store app's docker-compose into a PrintBox plugin, reusing apps others have built.
+
+### 常用命令 / Common commands
+
+```bash
+sudo printbox plugin list                            # 列出已发现插件 / list discovered plugins
+sudo printbox plugin enable storage-share --yes      # 启用 SMB 共享插件（自动装 samba、写配置、重启 smbd）/ enable SMB share
+sudo printbox restart                                # 重启服务让新插件路由生效 / restart so the new plugin route takes effect
+sudo printbox plugin disable storage-share           # 禁用 / disable
+```
+
+### 示例：把 USB 移动硬盘变成局域网共享 + 时间机器 / Example: turn a USB drive into a LAN share + Time Machine target
+
+1. 先把移动硬盘挂载到某个目录，例如 `/mnt/usbhdd`（PrintBox 不负责挂载，可用 `mount` 或 fstab）。
+   First mount the USB drive somewhere, e.g. `/mnt/usbhdd` (PrintBox doesn't mount it for you; use `mount` or fstab).
+2. `sudo printbox plugin enable storage-share --yes`
+3. `sudo printbox restart`
+4. 浏览器打开 Web 界面 → 「插件」→「存储共享」，把共享目录填成 `/mnt/usbhdd`，按需开关「Time Machine」「允许访客」，保存。
+   Open the Web UI → Plugins → Storage Share; set the share path to `/mnt/usbhdd`, toggle Time Machine / guest as needed, save.
+5. macOS：访达 → 连接服务器 → `smb://<盒子IP>` → 在「时间机器」设置里即可选它作备份盘（fruit 模块已自动启用）。
+   macOS: Finder → Connect to Server → `smb://<box-ip>` → in Time Machine settings it shows up as a backup disk (fruit module auto-enabled).
+
+> ⚠️ **信任模型 / Trust model**：插件以 root 运行、可装系统包、可管服务。`enable` 第三方插件前会列出所需权限并要求确认——装别人写的插件等于授予 root。
+> Plugins run as root and may install system packages and manage services. Enabling a third-party plugin lists required capabilities and asks for confirmation — installing someone else's plugin means granting root.
+
+插件标准详见 / See [`PLUGIN_STANDARD.md`](PLUGIN_STANDARD.md) for the full plugin standard.
+
 ## 目录约定 / Filesystem layout (FHS)
 
 | 用途 / Purpose | 路径 / Path |
