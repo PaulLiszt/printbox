@@ -16,6 +16,11 @@
   ],
   "changelog": [
     {
+      "version": "0.2.61",
+      "title": "Hide the host's own disk: disable Samba home-directory share by default (avoid accidental system-file deletion)",
+      "body": "New capability: the storage-share plugin can now hide the box's own disk. Samba's [homes] section auto-exposes /home/<user> as a same-named share (e.g. tempest32) after login; even with browseable=no, Windows still shows this home share, risking accidental deletion of system files. The plugin adds a 'Hide the host's own disk' toggle (hide_host_disk, ON by default); on install/save it writes `available = no` into the [homes] section of the main smb.conf, fully disabling that share and leaving only the USB PrintBoxShare. The toggle can be checked/unchecked on the WebUI Plugins → Storage Share page, and is idempotent and repeatable. After upgrading, re-run `plugin enable storage-share --yes` (or save the config once) to apply; to take effect immediately you can also add `available = no` under [homes] in the main smb.conf and run `systemctl restart smbd nmbd`."
+    },
+    {
       "version": "0.2.60",
       "title": "Fix SMB 'Access Denied': exact include path + password synced to Samba",
       "body": "Root-caused and fixed the persistent Windows 'Access Denied' on the USB share: (1) the main smb.conf used `include = .../*.conf` with a wildcard, which Samba does NOT expand, so the PrintBoxShare was never loaded and only the old pre-existing `[nobody]` share showed up; now uses the exact file path. (2) Samba keeps its own password DB; PrintBox only set the Linux password before, so accounts could not log into SMB; now create_user/set_password also sync into smbpasswd, and delete_user cleans it up. install() warns clearly if the owner is missing from the Samba DB and tells you to run `printbox users set-pass`. After upgrading: printbox init -> set the primary user's Samba password (printbox users set-pass tempest32 <pw>) -> printbox plugin enable storage-share --yes; then log in from Windows with the same account."

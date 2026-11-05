@@ -219,6 +219,49 @@ def test_samba_sync():
           any("lifangchao" in c[1].get("input", "") for c in calls))
 test_samba_sync()
 
+# ---- 0.2.61：隐藏主机磁盘 —— 禁用 [homes] 家目录共享（available = no）----
+def test_hide_host_disk():
+    d = tempfile.mkdtemp()
+    main = os.path.join(d, "smb.conf")
+    # 模拟 Debian 默认 smb.conf：homes 段有 browseable = no 但仍会被 Windows 显示
+    initial = (
+        "[global]\n"
+        "   workgroup = WORKGROUP\n\n"
+        "[homes]\n"
+        "   comment = Home Directories\n"
+        "   browseable = no\n"
+        "   read only = yes\n"
+        "   create mask = 0700\n\n"
+        "[printers]\n"
+        "   browseable = no\n"
+    )
+    with open(main, "w") as f:
+        f.write(initial)
+    SS.SMB_MAIN = main
+    # 禁用 homes（hide_host_disk = true）
+    SS._configure_homes_share(True)
+    txt = open(main).read()
+    idx_h = txt.index("[homes]")
+    idx_p = txt.index("[printers]")
+    homes_block = txt[idx_h:idx_p]
+    check("homes 段被置 available = no（彻底关闭）", "available = no" in homes_block)
+    check("printers 段未被改动", "[printers]" in txt and "workgroup" in txt)
+    # 撤销：恢复 available = yes
+    SS._configure_homes_share(False)
+    txt2 = open(main).read()
+    idx_h2 = txt2.index("[homes]")
+    idx_p2 = txt2.index("[printers]")
+    homes_block2 = txt2[idx_h2:idx_p2]
+    check("撤销后 homes available = yes", "available = yes" in homes_block2)
+    # 不存在 homes 段时安全跳过、不报错、不动全局
+    main2 = os.path.join(d, "nosmb.conf")
+    open(main2, "w").write("[global]\n   workgroup = WORKGROUP\n")
+    SS.SMB_MAIN = main2
+    SS._configure_homes_share(True)
+    check("无 homes 段时不报错且不改全局段", "workgroup" in open(main2).read()
+          and "[homes]" not in open(main2).read())
+test_hide_host_disk()
+
 # 汇总
 failed = [n for n, ok in PASS if not ok]
 print("\n==== 结果 ====")

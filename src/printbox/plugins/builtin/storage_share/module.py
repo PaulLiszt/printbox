@@ -150,6 +150,56 @@ def _ensure_include_line():
     _write_smb(out)
 
 
+def _configure_homes_share(disable):
+    """在主 smb.conf 的 [homes] 段内设置/撤销 available = no，彻底隐藏或恢复主机家目录共享。
+
+    Samba 的 [homes] 是模板段：登录用户会被自动分配一个以其用户名命名的共享（即
+    `\\\\host\\用户名` 指向 /home/<user>）。仅靠 browseable = no 拦不住——Windows 对家目录
+    共享会主动显示。设 `available = no` 才能完全关闭该共享实例。
+
+    仅当主配置里确实存在 [homes] 段才处理；不存在则无需操作（本就没有家目录共享）。
+    该函数幂等，多次调用结果一致；可配合 hide_host_disk 配置项开/关。
+    """
+    if not os.path.exists(SMB_MAIN):
+        return
+    with open(SMB_MAIN, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+    start = None
+    for i, ln in enumerate(lines):
+        if ln.strip().lower() == "[homes]":
+            start = i
+            break
+    if start is None:
+        return  # 没有 homes 共享，无需处理
+    end = len(lines)
+    for j in range(start + 1, len(lines)):
+        if lines[j].strip().startswith("["):
+            end = j
+            break
+    body = lines[start + 1:end]
+    new_body = []
+    has_avail = False
+    has_browse = False
+    for ln in body:
+        s = ln.strip().lower()
+        if s.startswith("available"):
+            has_avail = True
+            new_body.append("   available = %s\n" % ("no" if disable else "yes"))
+        elif s.startswith("browseable"):
+            has_browse = True
+            new_body.append("   browseable = %s\n" % ("no" if disable else "yes"))
+        else:
+            new_body.append(ln)
+    # 原段里没有这两个键则补上（插在段首）
+    if not has_avail:
+        new_body.insert(0, "   available = %s\n" % ("no" if disable else "yes"))
+    if not has_browse:
+        new_body.insert(0, "   browseable = %s\n" % ("no" if disable else "yes"))
+    lines[start + 1:end] = new_body
+    with open(SMB_MAIN, "w", encoding="utf-8") as f:
+        f.writelines(lines)
+
+
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__)))), "data")
 
@@ -213,6 +263,9 @@ def install(manifest=None):
         f.write(generate_smb_conf(cfg))
     _ensure_include_line()
     _ensure_udev()
+    # 隐藏小主机自身磁盘：禁用 Samba [homes] 家目录共享（available = no），仅保留移动硬盘的
+    # PrintBoxShare。默认开启（hide_host_disk 缺省按 True），避免登录后误删系统文件。
+    _configure_homes_share(bool(cfg.get("hide_host_disk", True)))
     _warn_if_samba_user_missing(cfg["share_owner"])
     subprocess.run(["systemctl", "restart", "smbd", "nmbd"],
                    capture_output=True, text=True)
@@ -345,6 +398,7 @@ def handle_get(handler, lang):
         "tm_checked": "checked" if cfg.get("timemachine", True) else "",
         "guest_checked": "checked" if cfg.get("guest_ok", True) else "",
         "auto_checked": "checked" if cfg.get("auto_mount", False) else "",
+        "hide_checked": "checked" if cfg.get("hide_host_disk", True) else "",
         "owner_options": _owner_options_html(owner, lang),
         "usb_drives_html": _usb_drives_html(lang),
         "mounted_html": _mounted_html(lang),
@@ -382,8 +436,9 @@ def handle_post(handler, form, lang):
             "share_path": cfg.get("share_path", "/srv/printbox-share"),
             "tm_checked": "checked" if cfg.get("timemachine", True) else "",
             "guest_checked": "checked" if cfg.get("guest_ok", True) else "",
-            "auto_checked": "checked" if cfg.get("auto_mount", False) else "",
-            "owner_options": _owner_options_html(owner, lang),
+        "auto_checked": "checked" if cfg.get("auto_mount", False) else "",
+        "hide_checked": "checked" if cfg.get("hide_host_disk", True) else "",
+        "owner_options": _owner_options_html(owner, lang),
             "usb_drives_html": _usb_drives_html(lang),
             "mounted_html": _mounted_html(lang),
             "notice": notice,
@@ -405,8 +460,9 @@ def handle_post(handler, form, lang):
             "share_path": cfg.get("share_path", "/srv/printbox-share"),
             "tm_checked": "checked" if cfg.get("timemachine", True) else "",
             "guest_checked": "checked" if cfg.get("guest_ok", True) else "",
-            "auto_checked": "checked" if cfg.get("auto_mount", False) else "",
-            "owner_options": _owner_options_html(owner, lang),
+        "auto_checked": "checked" if cfg.get("auto_mount", False) else "",
+        "hide_checked": "checked" if cfg.get("hide_host_disk", True) else "",
+        "owner_options": _owner_options_html(owner, lang),
             "usb_drives_html": _usb_drives_html(lang),
             "mounted_html": _mounted_html(lang),
             "notice": notice,
@@ -420,6 +476,7 @@ def handle_post(handler, form, lang):
         "timemachine": "timemachine" in form,
         "guest_ok": "guest_ok" in form,
         "auto_mount": "auto_mount" in form,
+        "hide_host_disk": "hide_host_disk" in form,
         "share_owner": get("share_owner"),
     }
     if MG:

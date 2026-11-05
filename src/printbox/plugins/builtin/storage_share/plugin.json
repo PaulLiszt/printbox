@@ -20,6 +20,8 @@
       "desc": {"zh": "允许访客只读访问", "en": "Allow guest read-only access"}},
     "auto_mount": {"type": "bool", "default": true,
       "desc": {"zh": "插入 USB 存储时自动挂载（排除系统盘，归 pb-disk 组）。默认开启，插上即用，无需手动。", "en": "Auto-mount USB storage on plug-in (excludes the system disk, owned by pb-disk). ON by default: plug in and it appears, no manual step."}},
+    "hide_host_disk": {"type": "bool", "default": true,
+      "desc": {"zh": "隐藏小主机自身磁盘：禁用 Samba [homes] 家目录共享，避免误删系统文件。默认开启，仅保留移动硬盘的 PrintBoxShare。", "en": "Hide the host's own disk: disable Samba's [homes] home-directory share to avoid accidental deletion of system files. ON by default; only the USB PrintBoxShare remains."}},
     "share_owner": {"type": "string", "default": "",
       "desc": {"zh": "共享归属账户（SMB 强制落地账户，留空=首个 pb-disk 成员）。磁盘读写权限由 pb-disk 组控制。",
         "en": "Share owner (SMB forced account; blank = first pb-disk member). Disk read/write is controlled by the pb-disk group."}}

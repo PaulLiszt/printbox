@@ -16,6 +16,11 @@
   ],
   "changelog": [
     {
+      "version": "0.2.61",
+      "title": "隐藏小主机自身磁盘：默认关闭 Samba 家目录共享（避免误删系统文件）",
+      "body": "新增能力：storage-share 插件现在可隐藏小主机自身的硬盘内容。Samba 的 [homes] 段会在账户登录后自动把 /home/<用户> 暴露为同名共享（如 tempest32），即使设 browseable=no，Windows 仍会主动显示该家目录共享，极易误删系统文件。现插件新增「隐藏小主机自身磁盘」开关（hide_host_disk，默认开启），安装/保存时在主 smb.conf 的 [homes] 段写入 available = no，彻底禁用该共享，仅保留移动硬盘的 PrintBoxShare。开关可在 WebUI「插件→存储共享」页勾选/取消，且幂等、可重复执行。升级后重跑 plugin enable storage-share --yes（或保存一次配置）即生效；想立即生效也可直接在主 smb.conf 的 [homes] 段加 available = no 后 systemctl restart smbd nmbd。"
+    },
+    {
       "version": "0.2.60",
       "title": "修复 SMB「拒绝访问」：include 改用精确路径 + 密码同步进 Samba",
       "body": "定位并修复 Windows 访问 USB 共享持续报「拒绝访问」的两个根因：(1) 主 smb.conf 的 include 写成了 `*.conf` 通配符，而 Samba 不会展开通配符，导致 PrintBoxShare 共享从未加载、盒上只剩你以前手动配的旧 `[nobody]` 共享；现改为精确文件路径。(2) Samba 有独立密码库，PrintBox 此前只写 Linux 密码，账户无法登录 SMB；现 create_user/set_password 会同步进 smbpasswd，delete_user 同步清理。install 时若归属账户未进 Samba 库会明确告警并提示用 `printbox users set-pass` 同步。升级后：printbox init → 把主用户设为 Samba 密码（printbox users set-pass tempest32 <密码>）→ printbox plugin enable storage-share --yes，Windows 用同名账户登录即可。"
