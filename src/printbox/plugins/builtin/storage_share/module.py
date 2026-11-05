@@ -118,13 +118,37 @@ def _ensure_include_line():
         f.writelines(lines)
 
 
+DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(
+    os.path.dirname(os.path.abspath(__file__)))), "data")
+
+
 def _ensure_udev():
-    """安装 USB 自动挂载的 udev 规则并 reload（幂等）。建共享目录并归 pb-disk 组。"""
+    """安装 USB 自动挂载的 udev 规则 + systemd 模板单元并 reload（幂等）。
+
+    单元里 ExecStart 写死 /usr/local/bin/printbox，由 printbox init 建立的软链指向当前
+    venv；这里也兜底补装单元，确保仅 enable 插件（未跑 init）时热插拔也能触发。
+    """
     try:
         os.makedirs(SMB_DROPIN_DIR, exist_ok=True)
         os.makedirs("/etc/udev/rules.d", exist_ok=True)
+        os.makedirs("/etc/systemd/system", exist_ok=True)
         if os.path.exists(UDEV_RULE_SRC):
             shutil.copy2(UDEV_RULE_SRC, UDEV_RULE_DST)
+        for unit in ("printbox-usb-mount@.service", "printbox-usb-umount@.service"):
+            usrc = os.path.join(DATA_DIR, unit)
+            if os.path.exists(usrc):
+                shutil.copy2(usrc, os.path.join("/etc/systemd/system", unit))
+        # 兜底：确保 /usr/local/bin/printbox 软链指向当前 venv（服务单元 ExecStart 写死该路径）
+        try:
+            import sys
+            venv_bin = os.path.dirname(os.path.realpath(sys.executable))
+            venv_pb = os.path.join(venv_bin, "printbox")
+            link = "/usr/local/bin/printbox"
+            if os.path.exists(venv_pb) and not os.path.exists(link):
+                os.symlink(venv_pb, link)
+        except Exception:
+            pass
+        subprocess.run(["systemctl", "daemon-reload"], capture_output=True, text=True)
         subprocess.run(["udevadm", "control", "--reload-rules"],
                        capture_output=True, text=True)
         subprocess.run(["udevadm", "trigger", "--subsystem-match=block"],

@@ -16,6 +16,11 @@
   ],
   "changelog": [
     {
+      "version": "0.2.59",
+      "title": "USB auto-mount ON by default + 'plug in and it works' fixed",
+      "body": "The auto-mount for Requirement 2 was silently disabled by a default-off flag and the unmount/list logic still pointed at the old mount base, forcing manual mounts. Fixed: (1) auto_mount now defaults ON — plugging in a USB drive triggers udev→systemd to mount it into the share dir automatically, zero manual steps; (2) auto-mount also defaults ON when config is missing; (3) unmount now uses /proc/mounts to locate the mount by device name, and the mounted-list scans the share root, fixing label-named mountpoints; (4) added exfatprogs/ntfs-3g so exFAT/NTFS disks auto-mount too; (5) plugin enable self-installs the udev rule + systemd template units and ensures the /usr/local/bin/printbox symlink. After upgrading: printbox init, then plugin enable storage-share --yes; thereafter USB plug/unplug is fully automatic."
+    },
+    {
       "version": "0.2.58",
       "title": "Fix USB share 'Access Denied': primary user now in pb-disk + auto-mount into share",
       "body": "Fixes two issues causing Windows 'Access Denied' on the USB share: (1) provisioning only added the active user to pb-ssh, not pb-disk, so the SMB forced account fell back to nobody and the second auth failed; now the primary user is also added to pb-disk (still toggleable per-user on /users). (2) auto-mount used to mount to the isolated /mnt/printbox, disconnected from the SMB share /srv/printbox-share, so the drive never appeared; now it mounts inside the share (subdir by label/device). After upgrading run `printbox init` and re-enable the storage-share plugin."

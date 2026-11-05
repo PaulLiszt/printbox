@@ -169,13 +169,33 @@ def list_usb_drives():
     return pick_usb_candidates(list_block_devices(), mounts_text)
 
 
+def _share_root_from_config():
+    """从 storage-share 插件配置取共享根目录；取不到则返回空字符串。"""
+    if C is None:
+        return ""
+    try:
+        from printbox.plugins import manager as MG
+        if MG:
+            cfg = MG.get_config("storage-share")
+            if cfg:
+                return cfg.get("share_path") or ""
+    except Exception:
+        pass
+    return ""
+
+
 def list_mounted_shares():
-    """返回已挂载在 MOUNT_BASE 下的 USB 共享（供 WebUI 展示）。"""
+    """返回已挂载在共享根目录下的 USB 共享（供 WebUI 展示）。
+
+    挂载点现在落在共享根目录（share_path）下的子目录（卷标/设备名），
+    因此扫描共享根目录而非旧的 MOUNT_BASE。
+    """
+    sr = _share_root_from_config() or MOUNT_BASE
     out = []
-    if not os.path.isdir(MOUNT_BASE):
+    if not os.path.isdir(sr):
         return out
-    for name in os.listdir(MOUNT_BASE):
-        mp = os.path.join(MOUNT_BASE, name)
+    for name in os.listdir(sr):
+        mp = os.path.join(sr, name)
         if not os.path.ismount(mp):
             continue
         out.append({"name": name, "mountpoint": mp})
@@ -225,15 +245,45 @@ def mount_usb(dev_name, owner="", group=DISK_GROUP, mountpoint=None, fstype=None
     return True, mountpoint
 
 
-def umount_usb(dev_name_or_mountpoint):
-    """卸载一个 USB 共享（按设备名或挂载点）。返回 (ok, msg)。"""
-    if dev_name_or_mountpoint.startswith("/"):
+def umount_usb(dev_name_or_mountpoint, share_root=None):
+    """卸载一个 USB 共享（按设备名或挂载点）。返回 (ok, msg)。
+
+    优先从 /proc/mounts 按设备节点（/dev/sdb1）定位真实挂载点，这样即使挂载点
+    用的是卷标命名也能正确卸载；否则兜底按 share_root/<dev> 或 MOUNT_BASE/<dev> 推断。
+    """
+    if dev_name_or_mountpoint.startswith("/") and os.path.ismount(dev_name_or_mountpoint):
         target = dev_name_or_mountpoint
+        dev = ""
     else:
-        target = os.path.join(MOUNT_BASE, dev_name_or_mountpoint)
+        # 归一化为设备节点 /dev/<dev>
+        if dev_name_or_mountpoint.startswith("/dev/"):
+            dev = dev_name_or_mountpoint
+        elif dev_name_or_mountpoint.startswith("/"):
+            dev = ""  # 看起来像路径但不是挂载点，下面走兜底
+        else:
+            dev = "/dev/" + dev_name_or_mountpoint
+        target = ""
+    # 1) 从 /proc/mounts 按设备节点找挂载点（最可靠）
+    if dev:
+        try:
+            with open("/proc/mounts", "r", encoding="utf-8") as f:
+                for line in f:
+                    parts = line.split()
+                    if len(parts) >= 2 and parts[0] == dev:
+                        target = parts[1]
+                        break
+        except Exception:
+            pass
+    # 2) 兜底：按共享根目录或 MOUNT_BASE 下的 <dev> 推断
+    if not target:
+        sr = share_root or _share_root_from_config()
+        if sr:
+            target = os.path.join(sr, os.path.basename(dev_name_or_mountpoint))
+        else:
+            target = os.path.join(MOUNT_BASE, os.path.basename(dev_name_or_mountpoint))
     r = _run(["umount", target])
     if r.returncode != 0:
-        return False, (r.stderr.strip() or "umount 失败")
+        return False, (r.stderr.strip() or "umount 失败: %s" % target)
     if C:
         C.log("usb-mount", "INFO", "已卸载 %s" % target)
     return True, "已卸载 %s" % target
@@ -276,24 +326,26 @@ def usb_mount_main(dev_name, force=False, share_root=None):
     """udev / 命令行入口：`printbox usb-mount <dev>`。
 
     - force=True（手动）：无条件挂载（仍排除系统盘）。
-    - force=False（udev 自动触发）：仅当 storage-share 插件开启 auto_mount 才挂载，否则跳过。
+    - force=False（udev 自动触发）：默认自动挂载；仅当 storage-share 配置里
+      auto_mount 显式为 false 时才跳过（配置缺失也按默认 true 处理，确保插上即用）。
     返回 (ok, msg)。
     """
     short = dev_name[len("/dev/"):] if dev_name.startswith("/dev/") else dev_name
     if not force:
-        auto = False
+        auto = True
         try:
             from printbox.plugins import manager as MG
             if MG:
                 cfg = MG.get_config("storage-share")
-                auto = bool(cfg.get("auto_mount")) if cfg else False
+                if cfg is not None:
+                    auto = bool(cfg.get("auto_mount", True))
         except Exception:
-            auto = False
+            auto = True
         if not auto:
             if C:
                 C.log("usb-mount", "INFO",
-                      "auto_mount 未开启，跳过自动挂载 %s" % short)
-            return False, "auto_mount 未开启，已跳过"
+                      "auto_mount 显式关闭，跳过自动挂载 %s" % short)
+            return False, "auto_mount 已关闭，已跳过"
     owner, group, cfg_root = _owner_group_from_config()
     if share_root is None:
         share_root = cfg_root

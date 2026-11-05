@@ -16,6 +16,11 @@
   ],
   "changelog": [
     {
+      "version": "0.2.59",
+      "title": "USB 自动挂载默认开启 + 彻底修复「插上即用」",
+      "body": "需求 2 的自动挂载此前被默认开关(flag)关死、且卸载/列表仍指向旧挂载点，导致必须手动挂载。本次修复：(1) auto_mount 默认改为开启——插上 USB 即由 udev→systemd 自动挂载进共享目录，零手动；(2) 配置缺失时也按默认自动挂载；(3) 卸载改用 /proc/mounts 按设备名精准定位，已挂载列表改扫共享根目录，解决卷标命名挂载点卸载/展示失效；(4) 插件依赖补 exfatprogs/ntfs-3g，exFAT/NTFS 盘也能自动挂载；(5) 插件 enable 时自包含安装 udev 规则+systemd 模板单元并兜底建立 /usr/local/bin/printbox 软链。建议：升级后 printbox init 再 plugin enable storage-share --yes，之后插拔 USB 全自动。"
+    },
+    {
       "version": "0.2.58",
       "title": "修复 USB 共享「拒绝访问」：默认主用户加入 pb-disk + 自动挂载进共享目录",
       "body": "修复两处导致 Windows 访问 USB 共享报「拒绝访问」的问题：(1) 安装时只把活跃用户加入 pb-ssh 组、漏掉 pb-disk，导致存储共享的 SMB 落地账户回退成 nobody、二次鉴权失败；现安装时同步把主用户加入 pb-disk（仍可在 /users 页逐项开关）。(2) 自动挂载原本挂到孤立的 /mnt/printbox，与 SMB 共享目录 /srv/printbox-share 不连通，U 盘不会出现在共享里；现改为挂进共享目录（按卷标/设备名子目录），插上即见。建议升级后执行 printbox init 并重装 storage-share 插件。"

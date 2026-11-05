@@ -152,6 +152,56 @@ MNT.is_system_device = _orig_sys
 check("mount_usb 挂进共享目录(MyUSB)", ok and mp.startswith(_share) and mp.endswith("MyUSB"))
 check("mount_usb 挂载命令含共享根", ok and _call["cmd"][-1] == mp and mp.startswith(_share))
 
+# ---------- 0.2.59：自动挂载默认开 + 卸载/列表修正 ----------
+import os as _os
+from io import StringIO as _SIO
+
+# list_mounted_shares 应扫描「共享根目录」而非旧 MOUNT_BASE
+_orig_srf = MNT._share_root_from_config
+MNT._share_root_from_config = lambda: _share
+_mp = _os.path.join(_share, "MyUSB")
+_os.makedirs(_mp, exist_ok=True)
+_real_ismount = _os.path.ismount
+_os.path.ismount = lambda p: p == _mp
+_rows = MNT.list_mounted_shares()
+_os.path.ismount = _real_ismount
+MNT._share_root_from_config = _orig_srf
+check("list_mounted_shares 扫描共享根目录", any(r["mountpoint"] == _mp for r in _rows))
+
+# umount_usb 应按设备名(/dev/sdb1)从 /proc/mounts 定位真实挂载点
+_proc = "/dev/sdb1 /srv/printbox-share/MyUSB fuseblk rw,relatime 0 0\n"
+_orig_open = open
+def _fake_open(path, *a, **k):
+    if path == "/proc/mounts":
+        return _SIO(_proc)
+    return _orig_open(path, *a, **k)
+_b = __import__("builtins")
+_real_open = _b.open
+_b.open = _fake_open
+MNT._run = _fake_run
+_u = MNT.umount_usb("sdb1")
+_b.open = _real_open
+MNT._run = _orig_run
+check("umount_usb 按设备名定位挂载点", _u[0] and _call["cmd"][-1] == "/srv/printbox-share/MyUSB")
+
+# usb_mount_main(force=False) 配置缺失也默认自动挂载（插上即用）
+_fcm = MNT._owner_group_from_config
+MNT._owner_group_from_config = lambda: ("", "pb-disk", _share)
+_orig_mount = MNT.mount_usb
+_captured = {}
+def _fake_mount(dev, **kw):
+    _captured["dev"] = dev
+    return True, _share + "/" + dev
+MNT.mount_usb = _fake_mount
+MGmod = __import__("printbox.plugins.manager", fromlist=["manager"])
+_orig_gc = MGmod.get_config
+MGmod.get_config = lambda name: None
+_r = MNT.usb_mount_main("sdb1", force=False)
+MGmod.get_config = _orig_gc
+MNT.mount_usb = _orig_mount
+MNT._owner_group_from_config = _fcm
+check("usb_mount_main 配置缺失默认自动挂载", _r[0] and _captured.get("dev") == "sdb1")
+
 # ---------- 汇总 ----------
 n_fail = sum(1 for _, ok in PASS if not ok)
 print(f"\n共 {len(PASS)} 项，失败 {n_fail} 项。")
