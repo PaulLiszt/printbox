@@ -124,6 +124,34 @@ check("validate 含大写拒绝", US.validate_username("Alice") is False)
 check("validate 含空格拒绝", US.validate_username("a b") is False)
 check("validate 空拒绝", US.validate_username("") is False)
 
+# ---------- 0.2.58：挂载进共享目录 ----------
+import tempfile as _tf
+check("_safe_name 卷标空格->下划线", MNT._safe_name("sdb1", "My Disk") == "My_Disk")
+check("_safe_name 去路径分隔", MNT._safe_name("sdb1", "weird/name\\x") == "weird_name_x")
+check("_safe_name 空卷标回退设备名", MNT._safe_name("sdb1", "") == "sdb1")
+check("_safe_name 长度<=40", len(MNT._safe_name("sdb1", "a" * 100)) <= 40)
+
+# mount_usb 挂进共享目录（mock _run，不真挂载）
+_call = {}
+class _FakeRes:
+    returncode = 0
+    stdout = ""
+    stderr = ""
+def _fake_run(cmd):
+    _call["cmd"] = cmd
+    return _FakeRes()
+_orig_run = MNT._run
+_orig_sys = MNT.is_system_device
+MNT._run = _fake_run
+MNT.is_system_device = lambda n, mt=None: False
+_share = _tf.mkdtemp()
+ok, mp = MNT.mount_usb("sdb1", owner="tempest32", group="pb-disk",
+                       share_root=_share, label="MyUSB", fstype="exfat")
+MNT._run = _orig_run
+MNT.is_system_device = _orig_sys
+check("mount_usb 挂进共享目录(MyUSB)", ok and mp.startswith(_share) and mp.endswith("MyUSB"))
+check("mount_usb 挂载命令含共享根", ok and _call["cmd"][-1] == mp and mp.startswith(_share))
+
 # ---------- 汇总 ----------
 n_fail = sum(1 for _, ok in PASS if not ok)
 print(f"\n共 {len(PASS)} 项，失败 {n_fail} 项。")

@@ -392,6 +392,25 @@ def add_sessions_to_ssh_group():
     return added
 
 
+def add_sessions_to_disk_group():
+    """把当前会话/特权组用户也纳入 pb-disk，使主用户默认可访问磁盘共享。
+
+    对应需求 3c：系统已建立的账户应能直接访问磁盘。安装时若只把用户放进 pb-ssh，
+    存储共享会回退到 nobody 落地账户，导致 SMB 二次鉴权失败（拒绝访问）。
+    这里把活跃用户默认加入 pb-disk；之后仍可在 /users 页逐项开关。
+    """
+    ensure_groups()
+    added = []
+    for u in current_session_users():
+        if not user_exists(u):
+            continue
+        if u not in group_members("pb-disk"):
+            r = _run(["usermod", "-aG", "pb-disk", u])
+            if r.returncode == 0:
+                added.append(u)
+    return added
+
+
 def apply_ssh_policy(restrict=True, allow_groups=("pb-ssh",),
                      permit_root_login="no"):
     """改写 sshd_config 强制策略。带护栏：先备份，开 AllowGroups 前把现有登录用户纳入 pb-ssh，

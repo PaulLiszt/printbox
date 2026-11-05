@@ -159,10 +159,11 @@ def install(manifest=None):
     _ensure_udev()
     subprocess.run(["systemctl", "restart", "smbd", "nmbd"],
                    capture_output=True, text=True)
-    # 若开启自动挂载，立即挂载当前符合条件的 USB 存储
+    # 若开启自动挂载，立即把当前符合条件的 USB 存储挂进共享目录（使其出现在 SMB 共享里）
     if cfg.get("auto_mount") and MNT:
         try:
-            MNT.auto_mount_all(owner=cfg["share_owner"], group=DISK_GROUP)
+            MNT.auto_mount_all(owner=cfg["share_owner"], group=DISK_GROUP,
+                               share_root=share_path)
         except Exception:
             pass
 
@@ -284,11 +285,14 @@ def handle_post(handler, form, lang):
         ok, msg = (False, "未指定设备")
         if dev and MNT:
             try:
-                owner = (MG.get_config("storage-share") or {}).get("share_owner") or ""
+                _cfg = MG.get_config("storage-share") or {}
+                owner = _cfg.get("share_owner") or ""
+                share_path = _cfg.get("share_path") or "/srv/printbox-share"
             except Exception:
-                owner = ""
-            ok, msg = MNT.usb_mount_main(dev, force=True) if hasattr(MNT, "usb_mount_main") \
-                else MNT.mount_usb(dev, owner=owner, group=DISK_GROUP)
+                owner, share_path = "", "/srv/printbox-share"
+            ok, msg = MNT.usb_mount_main(dev, force=True, share_root=share_path) \
+                if hasattr(MNT, "usb_mount_main") \
+                else MNT.mount_usb(dev, owner=owner, group=DISK_GROUP, share_root=share_path)
         notice = f'<p class="badge {"ok" if ok else "err"}">{msg}</p>'
         cfg = MG.get_config("storage-share") if MG else {}
         owner = (cfg.get("share_owner") or "").strip()

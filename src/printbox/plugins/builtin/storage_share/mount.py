@@ -96,6 +96,16 @@ def is_system_device(name, mounts_text=None):
     return disk in _system_disks(mounts_text)
 
 
+def _safe_name(dev, label=""):
+    """纯函数：把设备名/卷标清洗成可用的挂载子目录名（去路径分隔与高危字符）。"""
+    import re
+    base = (label or dev or "usb").strip()
+    base = re.sub(r"[^A-Za-z0-9_\-\.]", "_", base)
+    if not base:
+        base = dev or "usb"
+    return base[:40]
+
+
 def build_mount_opts(fstype, owner="", group=DISK_GROUP):
     """纯函数：根据文件系统类型生成 mount -o 选项。
 
@@ -174,9 +184,14 @@ def list_mounted_shares():
 
 # ====================== 挂载/卸载 ======================
 
-def mount_usb(dev_name, owner="", group=DISK_GROUP, mountpoint=None, fstype=None):
-    """挂载一个 USB 分区到 /mnt/printbox/<dev>。
+def mount_usb(dev_name, owner="", group=DISK_GROUP, mountpoint=None, fstype=None,
+              share_root=None, label=None):
+    """挂载一个 USB 分区。
 
+    挂载点优先级：
+      1) 显式 mountpoint；
+      2) share_root 非空时挂到 <share_root>/<清洗后的卷标或设备名>（这样 U 盘会出现在 SMB 共享里）；
+      3) 否则挂到 MOUNT_BASE/<dev>（/mnt/printbox/<dev>）。
     返回 (ok, msg)。会先排除系统盘（is_system_device）。
     """
     if dev_name.startswith("/dev/"):
@@ -188,7 +203,11 @@ def mount_usb(dev_name, owner="", group=DISK_GROUP, mountpoint=None, fstype=None
     if is_system_device(short):
         return False, "拒绝挂载系统盘设备: %s" % short
     if mountpoint is None:
-        mountpoint = os.path.join(MOUNT_BASE, short)
+        if share_root:
+            os.makedirs(share_root, exist_ok=True)
+            mountpoint = os.path.join(share_root, _safe_name(short, label))
+        else:
+            mountpoint = os.path.join(MOUNT_BASE, short)
     os.makedirs(mountpoint, exist_ok=True)
     if not fstype:
         fstype = _detect_fstype(dev)
@@ -220,11 +239,15 @@ def umount_usb(dev_name_or_mountpoint):
     return True, "已卸载 %s" % target
 
 
-def auto_mount_all(owner="", group=DISK_GROUP):
-    """挂载当前所有符合资格的 USB 存储分区。返回 [(ok, msg), ...]。"""
+def auto_mount_all(owner="", group=DISK_GROUP, share_root=None):
+    """挂载当前所有符合资格的 USB 存储分区。返回 [(ok, msg), ...]。
+
+    share_root 非空时把 U 盘挂进共享目录（使其出现在 SMB 共享里）。
+    """
     results = []
     for d in list_usb_drives():
-        results.append(mount_usb(d["name"], owner=owner, group=group))
+        results.append(mount_usb(d["name"], owner=owner, group=group,
+                                 share_root=share_root, label=d.get("label")))
     return results
 
 
@@ -234,20 +257,22 @@ def _owner_group_from_config():
     """从 storage-share 插件配置取共享归属账户与组；取不到则默认空 owner + pb-disk。"""
     owner = ""
     group = DISK_GROUP
+    share_root = ""
     if C is None:
-        return owner, group
+        return owner, group, share_root
     try:
         from printbox.plugins import manager as MG
         if MG:
             cfg = MG.get_config("storage-share")
             if cfg:
                 owner = cfg.get("share_owner") or ""
+                share_root = cfg.get("share_path") or ""
     except Exception:
         pass
-    return owner, group
+    return owner, group, share_root
 
 
-def usb_mount_main(dev_name, force=False):
+def usb_mount_main(dev_name, force=False, share_root=None):
     """udev / 命令行入口：`printbox usb-mount <dev>`。
 
     - force=True（手动）：无条件挂载（仍排除系统盘）。
@@ -269,8 +294,10 @@ def usb_mount_main(dev_name, force=False):
                 C.log("usb-mount", "INFO",
                       "auto_mount 未开启，跳过自动挂载 %s" % short)
             return False, "auto_mount 未开启，已跳过"
-    owner, group = _owner_group_from_config()
-    return mount_usb(short, owner=owner, group=group)
+    owner, group, cfg_root = _owner_group_from_config()
+    if share_root is None:
+        share_root = cfg_root
+    return mount_usb(short, owner=owner, group=group, share_root=share_root)
 
 
 def usb_umount_main(dev_name):

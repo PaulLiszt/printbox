@@ -1084,15 +1084,20 @@ def _ensure_locale_and_fonts(install_fonts=True):
 
 
 def _ensure_user_groups():
-    """创建 PrintBox 权限组（pb-ssh / pb-disk / pb-admin），并把当前会话/特权用户纳入 pb-ssh，
-    避免后续开启 SSH 限制时把自己锁在门外。失败仅记录，不阻断安装。"""
+    """创建 PrintBox 权限组（pb-ssh / pb-disk / pb-admin），并把当前会话/特权用户纳入 pb-ssh
+    与 pb-disk，避免后续开启 SSH 限制时把自己锁在门外，并确保主用户默认可访问磁盘共享。
+    失败仅记录，不阻断安装。"""
     try:
         from . import users as US
         US.ensure_groups()
-        added = US.add_sessions_to_ssh_group()
-        if added:
+        added_ssh = US.add_sessions_to_ssh_group()
+        if added_ssh:
             C.log("init", "INFO",
-                  f"已将现有会话用户纳入 pb-ssh 防锁门: {', '.join(added)}")
+                  f"已将现有会话用户纳入 pb-ssh 防锁门: {', '.join(added_ssh)}")
+        added_disk = US.add_sessions_to_disk_group()
+        if added_disk:
+            C.log("init", "INFO",
+                  f"已将现有会话用户纳入 pb-disk（磁盘共享默认可访问）: {', '.join(added_disk)}")
     except Exception as e:
         C.log("init", "WARN", f"创建权限组失败（可忽略）: {e}")
 

@@ -16,6 +16,11 @@
   ],
   "changelog": [
     {
+      "version": "0.2.58",
+      "title": "Fix USB share 'Access Denied': primary user now in pb-disk + auto-mount into share",
+      "body": "Fixes two issues causing Windows 'Access Denied' on the USB share: (1) provisioning only added the active user to pb-ssh, not pb-disk, so the SMB forced account fell back to nobody and the second auth failed; now the primary user is also added to pb-disk (still toggleable per-user on /users). (2) auto-mount used to mount to the isolated /mnt/printbox, disconnected from the SMB share /srv/printbox-share, so the drive never appeared; now it mounts inside the share (subdir by label/device). After upgrading run `printbox init` and re-enable the storage-share plugin."
+    },
+    {
       "version": "0.2.57",
       "title": "System account management + USB auto-mount",
       "body": "New /users account management page: create/delete/reset-password/lock accounts, with permissions via Linux groups (pb-ssh for remote, pb-disk for disk, pb-admin for admin); root is protected. SSH access control rewrites sshd_config with guardrails (backup first, merge existing config, add current sessions to pb-ssh to avoid lockout). storage-share plugin upgraded: USB storage auto-mounts on plug-in (excludes the system disk, owned by pb-disk), and the SMB share forces a single account (force user) authorized by the pb-disk group so existing system accounts can access the disk."
