@@ -16,6 +16,11 @@
   ],
   "changelog": [
     {
+      "version": "0.2.60",
+      "title": "Fix SMB 'Access Denied': exact include path + password synced to Samba",
+      "body": "Root-caused and fixed the persistent Windows 'Access Denied' on the USB share: (1) the main smb.conf used `include = .../*.conf` with a wildcard, which Samba does NOT expand, so the PrintBoxShare was never loaded and only the old pre-existing `[nobody]` share showed up; now uses the exact file path. (2) Samba keeps its own password DB; PrintBox only set the Linux password before, so accounts could not log into SMB; now create_user/set_password also sync into smbpasswd, and delete_user cleans it up. install() warns clearly if the owner is missing from the Samba DB and tells you to run `printbox users set-pass`. After upgrading: printbox init -> set the primary user's Samba password (printbox users set-pass tempest32 <pw>) -> printbox plugin enable storage-share --yes; then log in from Windows with the same account."
+    },
+    {
       "version": "0.2.59",
       "title": "USB auto-mount ON by default + 'plug in and it works' fixed",
       "body": "The auto-mount for Requirement 2 was silently disabled by a default-off flag and the unmount/list logic still pointed at the old mount base, forcing manual mounts. Fixed: (1) auto_mount now defaults ON — plugging in a USB drive triggers udev→systemd to mount it into the share dir automatically, zero manual steps; (2) auto-mount also defaults ON when config is missing; (3) unmount now uses /proc/mounts to locate the mount by device name, and the mounted-list scans the share root, fixing label-named mountpoints; (4) added exfatprogs/ntfs-3g so exFAT/NTFS disks auto-mount too; (5) plugin enable self-installs the udev rule + systemd template units and ensures the /usr/local/bin/printbox symlink. After upgrading: printbox init, then plugin enable storage-share --yes; thereafter USB plug/unplug is fully automatic."

@@ -237,6 +237,7 @@ def delete_user(name, remove_home=True):
     r = _run(cmd + [name])
     if r.returncode != 0:
         return False, f"userdel 失败: {r.stderr.strip() or r.stdout.strip()}"
+    _remove_samba_user(name)
     return True, f"已删除账户 {name}"
 
 
@@ -254,12 +255,52 @@ def set_password(name, password):
 
 
 def _set_password_raw(name, password):
+    """设置 Linux 密码；并尽力把同一密码同步进 Samba 密码库（smbpasswd）。
+
+    Samba 用独立的密码库，只改 Linux 密码不足以让账户登录 SMB 共享——
+    这是 Windows 访问 SMB 报『拒绝访问』的头号原因。smbpasswd 不存在
+    （未装 samba）时静默跳过，不影响 Linux 账户本身。
+    """
+    ok = False
     try:
         p = subprocess.run(["chpasswd"], input=f"{name}:{password}\n",
                            capture_output=True, text=True)
-        return p.returncode == 0
+        ok = (p.returncode == 0)
+    except Exception:
+        ok = False
+    _sync_samba_password(name, password)
+    return ok
+
+
+def _sync_samba_password(name, password):
+    """尽力把密码同步进 Samba 密码库（smbpasswd）。返回是否成功（best-effort）。"""
+    smbpasswd = shutil.which("smbpasswd")
+    if not smbpasswd:
+        return False
+    try:
+        # -a 新建；若已存在则 -a 报错，去掉 -a 直接更新
+        p = subprocess.run([smbpasswd, "-a", "-s", name],
+                           input=f"{password}\n{password}\n",
+                           capture_output=True, text=True)
+        if p.returncode == 0:
+            return True
+        p2 = subprocess.run([smbpasswd, "-s", name],
+                            input=f"{password}\n{password}\n",
+                            capture_output=True, text=True)
+        return p2.returncode == 0
     except Exception:
         return False
+
+
+def _remove_samba_user(name):
+    """删除 Samba 密码库中的对应条目（best-effort）。"""
+    smbpasswd = shutil.which("smbpasswd")
+    if not smbpasswd:
+        return
+    try:
+        subprocess.run([smbpasswd, "-x", name], capture_output=True, text=True)
+    except Exception:
+        pass
 
 
 def set_perms(name, perms):

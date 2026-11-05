@@ -160,6 +160,65 @@ with tempfile.TemporaryDirectory() as d:
     finally:
         MG.PLUGINS_D = orig_d
 
+# ---- 0.2.60：include 必须用精确路径（Samba 不展开通配符 *.conf）----
+def _run_include_test(initial_text):
+    d = tempfile.mkdtemp()
+    main = os.path.join(d, "smb.conf")
+    dropin_dir = os.path.join(d, "smb.d")
+    os.makedirs(dropin_dir, exist_ok=True)
+    dropin = os.path.join(dropin_dir, "printbox-share.conf")
+    open(dropin, "w").write("[PrintBoxShare]\n   path = /srv/printbox-share\n")
+    with open(main, "w") as f:
+        f.write(initial_text.format(dropin_dir=dropin_dir))
+    SS.SMB_MAIN = main
+    SS.SMB_DROPIN_DIR = dropin_dir
+    SS.SMB_DROPIN = dropin
+    SS._ensure_include_line()
+    return open(main).read(), dropin
+
+_txt_a, _dropin_a = _run_include_test(
+    "[global]\n   workgroup = WORKGROUP\n   include = {dropin_dir}/*.conf\n\n"
+    "[nobody]\n   path = /srv/nobody\n")
+check("include 不再是通配符 *.conf", "*.conf" not in _txt_a)
+check("include 指向精确 drop-in 文件", _dropin_a in _txt_a)
+check("旧 [nobody] 共享被保留（Samba 重启后仍存在）", "[nobody]" in _txt_a)
+check("map to guest 已注入", "map to guest" in _txt_a)
+
+_txt_b, _dropin_b = _run_include_test(
+    "[global]\n   workgroup = WORKGROUP\n")
+check("无 include 时插入精确 include", _dropin_b in _txt_b and "*.conf" not in _txt_b)
+
+_txt_c, _dropin_c = _run_include_test(
+    "[global]\n   include = {dropin_dir}/printbox-share.conf\n")
+check("已是精确 include 时幂等不重复", _txt_c.count(_dropin_c) == 1)
+
+# ---- 0.2.60：密码同步进 Samba 密码库（mock，无需真实 samba）----
+def test_samba_sync():
+    import printbox.users as U
+    calls = []
+    def fake_which(x):
+        return "/usr/bin/smbpasswd" if x == "smbpasswd" else None
+    class FakeRes:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+    def fake_run(cmd, **kw):
+        calls.append((list(cmd), kw))
+        return FakeRes()
+    ow, orun = U.shutil.which, U.subprocess.run
+    U.shutil.which, U.subprocess.run = fake_which, fake_run
+    try:
+        ok = U._sync_samba_password("tempest32", "lifangchao")
+    finally:
+        U.shutil.which, U.subprocess.run = ow, orun
+    check("Samba 密码同步返回成功", ok is True)
+    check("smbpasswd 以 -a -s 调用且带账户名",
+          any(c[0][0].endswith("smbpasswd") and "-a" in c[0] and "-s" in c[0]
+              and "tempest32" in c[0] for c in calls))
+    check("密码经 stdin 传入（不进命令行参数）",
+          any("lifangchao" in c[1].get("input", "") for c in calls))
+test_samba_sync()
+
 # 汇总
 failed = [n for n, ok in PASS if not ok]
 print("\n==== 结果 ====")

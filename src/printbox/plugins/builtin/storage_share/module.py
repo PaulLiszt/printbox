@@ -19,6 +19,11 @@ except Exception:  # 独立单元测试时 printbox 可能不在 path
     MG = None
 
 try:
+    from printbox import config as C
+except Exception:
+    C = None
+
+try:
     from printbox.plugins.builtin.storage_share import mount as MNT
 except Exception:
     MNT = None
@@ -92,30 +97,57 @@ def _resolve_owner(cfg):
     return "nobody"
 
 
+def _write_smb(lines):
+    with open(SMB_MAIN, "w", encoding="utf-8") as f:
+        f.writelines(lines)
+
+
+def _insert_after_global(lines, block):
+    """把 block(行列表) 插入到 [global] 段首行之后；若无 [global] 则补一个。"""
+    idx = next((i for i, ln in enumerate(lines) if ln.strip().lower() == "[global]"), None)
+    if idx is None:
+        lines.append("\n[global]\n")
+        idx = len(lines) - 1
+    lines[idx + 1:idx + 1] = block
+
+
 def _ensure_include_line():
     """确保主 smb.conf 的 [global] 段包含我们的 drop-in include（幂等）。
 
-    注意：include 必须放在 [global] 段内才生效，追加到文件末尾无效。
-    同时保证 `map to guest = bad user`，否则访客(匿名)写共享会失败。
+    注意：
+    - include 必须放在 [global] 段内才生效，追加到文件末尾无效。
+    - **Samba 不会展开 include 里的 `*` 通配符**，旧版本写成 `*.conf` 会导致 drop-in
+      永远不加载、共享不出现；这里必须用「精确文件路径」。
+    - 同时保证 `map to guest = bad user`，否则访客(匿名)写共享会失败。
     """
     if not os.path.exists(SMB_MAIN):
         return
     with open(SMB_MAIN, "r", encoding="utf-8") as f:
         lines = f.readlines()
-    if any(SMB_DROPIN_DIR in ln for ln in lines):
-        return  # 已注入，幂等退出
-    include_line = "   include = %s/*.conf\n" % SMB_DROPIN_DIR
-    insert = ["# PrintBox storage-share drop-in\n", include_line]
-    if not any("map to guest" in ln for ln in lines):
-        insert.append("   map to guest = bad user\n")
-    # 找到 [global] 段首行，在其后插入；没有就补一个 [global]
-    idx = next((i for i, ln in enumerate(lines) if ln.strip().lower() == "[global]"), None)
-    if idx is None:
-        lines.append("\n[global]\n")
-        idx = len(lines) - 1
-    lines[idx + 1:idx + 1] = insert
-    with open(SMB_MAIN, "w", encoding="utf-8") as f:
-        f.writelines(lines)
+    # 去掉旧版通配 include（Samba 不展开），并检查是否已存在精确 include
+    out = []
+    has_exact = False
+    for ln in lines:
+        s = ln.strip()
+        if s.startswith("include") and SMB_DROPIN_DIR in s:
+            if "*" in s:
+                continue  # 丢弃通配形式（Samba 不展开，等于没配）
+            if SMB_DROPIN in s:
+                has_exact = True
+        out.append(ln)
+    if has_exact:
+        # 已正确注入：仅确保 map to guest 存在
+        if not any("map to guest" in l for l in out):
+            _insert_after_global(out, ["   map to guest = bad user\n"])
+            _write_smb(out)
+        return
+    # 需要插入精确 include（+ map to guest）
+    block = ["# PrintBox storage-share drop-in\n",
+             "   include = %s\n" % SMB_DROPIN]
+    if not any("map to guest" in l for l in out):
+        block.append("   map to guest = bad user\n")
+    _insert_after_global(out, block)
+    _write_smb(out)
 
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(
@@ -181,6 +213,7 @@ def install(manifest=None):
         f.write(generate_smb_conf(cfg))
     _ensure_include_line()
     _ensure_udev()
+    _warn_if_samba_user_missing(cfg["share_owner"])
     subprocess.run(["systemctl", "restart", "smbd", "nmbd"],
                    capture_output=True, text=True)
     # 若开启自动挂载，立即把当前符合条件的 USB 存储挂进共享目录（使其出现在 SMB 共享里）
@@ -190,6 +223,29 @@ def install(manifest=None):
                                share_root=share_path)
         except Exception:
             pass
+
+
+def _warn_if_samba_user_missing(owner):
+    """若 Samba 已安装但共享归属账户不在 Samba 密码库，记录告警。
+
+    Samba 用独立密码库，Linux 密码不算数。账户没进 Samba 库时，Windows 访问会
+    直接『拒绝访问』。此时提示用户用 `printbox users set-pass <账户> <密码>` 同步。
+    """
+    if not owner:
+        return
+    pdbedit = shutil.which("pdbedit")
+    if not pdbedit:
+        return  # 没装 samba，跳过（仅 storage-share 插件未启用时常见）
+    try:
+        r = subprocess.run([pdbedit, "-L"], capture_output=True, text=True)
+        if r.returncode == 0 and owner not in r.stdout:
+            if C:
+                C.log("storage-share", "WARN",
+                      "共享归属账户 %s 尚未加入 Samba 密码库；Windows 访问将被拒绝。"
+                      "请运行 `printbox users set-pass %s <密码>` 将其同步进 Samba。"
+                      % (owner, owner))
+    except Exception:
+        pass
 
 
 def disable(manifest=None):
