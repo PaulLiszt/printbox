@@ -1,0 +1,14 @@
+[Unit]
+Description=PrintBox 自动挂载 USB 存储 %i
+BindsTo=dev-%i.device
+After=dev-%i.device
+
+[Service]
+Type=oneshot
+# 等内核/文件系统就绪（分区出现后文件系统签名有时延）
+ExecStartPre=/bin/sleep 2
+ExecStart=/usr/local/bin/printbox usb-mount %i
+RemainAfterExit=yes
+
+[Install]
+WantedBy=dev-%i.device

@@ -8,10 +8,16 @@
 显式列出 required_capabilities 让用户确认（CLI 里落实），装别人插件 = 给 root。
 """
 import os
+import io
 import json
+import shutil
+import tempfile
 import subprocess
+import urllib.request
+import urllib.parse
 
 from . import manifest as M
+from . import compat as compat
 from .. import config as C
 
 BUILTIN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "builtin")
@@ -82,6 +88,61 @@ def list_plugins():
             "required_capabilities": m.required_capabilities,
         })
     return out
+
+
+def _download(url, dest_path, timeout=30):
+    """把 URL 下载到 dest_path（支持 http/https）。失败抛异常，由调用方处理。"""
+    ctx = None
+    try:
+        import ssl
+        ctx = ssl.create_default_context()
+        # 盒子偶尔在内部/自签 CA 环境，允许降级验证（仅用于 compose/元数据这类非敏感文本）
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+    except Exception:
+        ctx = None
+    req = urllib.request.Request(url, headers={"User-Agent": "printbox-plugin-import/1.0"})
+    with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+        data = resp.read()
+    with open(dest_path, "wb") as f:
+        f.write(data)
+
+
+def import_plugin(compose_path, metadata_path=None, name=None,
+                 display_name=None, description=None):
+    """把第三方 compose + 元数据转成 PrintBox 插件并落盘到 PLUGINS_D。
+
+    返回 (插件名, 安装目录)。幂等：同名会覆盖。纯逻辑、无副作用风险（只写 plugins.d）。
+    """
+    manifest = compat.import_compose(
+        compose_path, metadata_path, name=name,
+        display_name=display_name, description=description)
+    dest = os.path.join(PLUGINS_D, manifest["name"])
+    os.makedirs(dest, exist_ok=True)
+    comp_basename = os.path.basename(compose_path)
+    shutil.copy(compose_path, os.path.join(dest, comp_basename))
+    if metadata_path and os.path.exists(metadata_path):
+        shutil.copy(metadata_path, os.path.join(dest, os.path.basename(metadata_path)))
+    # manifest 内记录的 compose 文件名要跟随实际落盘的文件名
+    manifest["compose"] = comp_basename
+    with open(os.path.join(dest, "plugin.json"), "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2, ensure_ascii=False)
+    return manifest["name"], dest
+
+
+def import_plugin_from_url(compose_url, metadata_url=None, name=None):
+    """从 URL 拉取第三方 compose（可选元数据 URL）并导入为插件。返回 (插件名, 安装目录)。"""
+    d = tempfile.mkdtemp(prefix="printbox-import-")
+    comp = os.path.join(d, "docker-compose.yml")
+    _download(compose_url, comp)
+    meta = None
+    if metadata_url:
+        meta = os.path.join(d, "metadata.json")
+        try:
+            _download(metadata_url, meta)
+        except Exception:
+            meta = None
+    return import_plugin(comp, meta, name=name)
 
 
 def _apt_install(pkgs):
@@ -200,6 +261,33 @@ def dispatch_get(handler, path, lang):
 
 def dispatch_post(handler, path, lang, form):
     """在 _do_post 开头调用：命中插件路由则处理并返回 True。"""
+    if path == "/plugins":
+        # 插件页的「安装第三方插件」表单（URL 导入）
+        act = form.get("act", [""])[0]
+        if act == "import_url":
+            from . import views
+            url = (form.get("url") or [""])[0].strip()
+            meta = (form.get("metadata_url") or [""])[0].strip() or None
+            nm = (form.get("name") or [""])[0].strip() or None
+            notice = ""
+            if not url:
+                notice = ("请填写 compose 地址。" if lang == "zh"
+                          else "Please provide the compose URL.")
+            else:
+                try:
+                    pname, dest = import_plugin_from_url(url, meta, nm)
+                    notice = (f"已导入插件 {pname} 到 {dest}；运行 "
+                              f"`printbox plugin enable {pname} --yes` 启用。"
+                              if lang == "zh" else
+                              f"Imported plugin {pname} to {dest}; run "
+                              f"`printbox plugin enable {pname} --yes` to enable.")
+                except Exception as e:
+                    notice = ("导入失败: " if lang == "zh" else "Import failed: ") + str(e)
+            handler._send(200, views.index(handler, lang, notice=notice))
+        else:
+            from . import views
+            handler._send(200, views.index(handler, lang))
+        return True
     if path in PLUGIN_ROUTES:
         m, mod = PLUGIN_ROUTES[path]
         if mod and hasattr(mod, "handle_post"):

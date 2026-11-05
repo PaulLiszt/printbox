@@ -13,5 +13,22 @@
 
   <label class="chk"><input type="checkbox" name="guest_ok" [[guest_checked]]> [[i18n:storage_guest_label]]</label>
 
+  <hr>
+  <label class="chk"><input type="checkbox" name="auto_mount" [[auto_checked]]> [[i18n:storage_auto_label]]</label>
+  <p class="muted">[[i18n:storage_auto_hint]]</p>
+
+  <label>[[i18n:storage_owner_label]]
+    <select name="share_owner">[[owner_options]]</select>
+  </label>
+  <p class="muted">[[i18n:storage_owner_hint]]</p>
+
   <p><button type="submit">[[i18n:storage_save]]</button></p>
 </form>
+
+<hr>
+<h3>[[i18n:storage_usb_title]]</h3>
+<p class="muted">[[i18n:storage_usb_hint]]</p>
+[[usb_drives_html]]
+
+<h3>[[i18n:storage_mounted_title]]</h3>
+[[mounted_html]]

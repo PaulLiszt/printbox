@@ -17,7 +17,12 @@
     "timemachine": {"type": "bool", "default": true,
       "desc": {"zh": "启用 Time Machine 备份", "en": "Enable Time Machine backups"}},
     "guest_ok": {"type": "bool", "default": true,
-      "desc": {"zh": "允许访客只读访问", "en": "Allow guest read-only access"}}
+      "desc": {"zh": "允许访客只读访问", "en": "Allow guest read-only access"}},
+    "auto_mount": {"type": "bool", "default": false,
+      "desc": {"zh": "插入 USB 存储时自动挂载（排除系统盘，归 pb-disk 组）", "en": "Auto-mount USB storage on plug-in (excludes the system disk, owned by pb-disk)"}},
+    "share_owner": {"type": "string", "default": "",
+      "desc": {"zh": "共享归属账户（SMB 强制落地账户，留空=首个 pb-disk 成员）。磁盘读写权限由 pb-disk 组控制。",
+        "en": "Share owner (SMB forced account; blank = first pb-disk member). Disk read/write is controlled by the pb-disk group."}}
   },
   "web": {
     "route": "/plugin/storage-share",

@@ -169,18 +169,86 @@ def cmd_plugin(args):
         print(f"已禁用插件: {args.name}")
         return
     if action == "import":
-        import json
-        import shutil
-        manifest = PLUGINS.import_compose(args.compose, args.metadata, name=args.name)
-        dest = os.path.join(PLUGINS.manager.PLUGINS_D, manifest["name"])
-        os.makedirs(dest, exist_ok=True)
-        shutil.copy(args.compose, os.path.join(dest, manifest["compose"]))
-        with open(os.path.join(dest, "plugin.json"), "w", encoding="utf-8") as f:
-            json.dump(manifest, f, indent=2, ensure_ascii=False)
-        print(f"已导入插件 {manifest['name']} 到 {dest}（type=container）。"
-              f"运行 `printbox plugin enable {manifest['name']} --yes` 启用。")
+        if args.url:
+            try:
+                pname, dest = PLUGINS.manager.import_plugin_from_url(
+                    args.url, args.metadata_url, name=args.name)
+            except Exception as e:
+                print(f"导入失败: {e}")
+                return
+        elif args.compose:
+            try:
+                pname, dest = PLUGINS.manager.import_plugin(
+                    args.compose, args.metadata, name=args.name)
+            except Exception as e:
+                print(f"导入失败: {e}")
+                return
+        else:
+            print("请提供 compose 本地路径，或用 --url 指定直链。")
+            return
+        print(f"已导入插件 {pname} 到 {dest}（type=container）。"
+              f"运行 `printbox plugin enable {pname} --yes` 启用。")
         return
     print("未知 plugin 子命令。可用：list / enable / disable / import")
+
+
+def cmd_users(args):
+    _need_root()
+    from . import users as US
+    US.ensure_groups()
+    sub = getattr(args, "users_cmd", None)
+    if sub == "list":
+        for r in US.list_managed_users():
+            perms = ",".join(g for g in US.GROUPS if r["perms"].get(g)) or "-"
+            lock = " [锁定]" if r.get("locked") else ""
+            prot = " [受保护]" if r["protected"] else ""
+            print(f"  {r['name']:20s} uid={r['uid']:<6} shell={r['shell']:18} perms={perms}{lock}{prot}")
+        return
+    if sub == "create":
+        perms = {"pb-ssh": args.ssh, "pb-disk": args.disk, "pb-admin": args.admin}
+        ok, msg = US.create_user(args.name, args.password, perms)
+        print(msg)
+        return
+    if sub == "delete":
+        ok, msg = US.delete_user(args.name)
+        print(msg)
+        return
+    if sub == "set-pass":
+        ok, msg = US.set_password(args.name, args.password)
+        print(msg)
+        return
+    if sub == "perms":
+        perms = {"pb-ssh": args.ssh, "pb-disk": args.disk, "pb-admin": args.admin}
+        ok, msg = US.set_perms(args.name, perms)
+        print(msg)
+        return
+    if sub == "ssh-policy":
+        ok, msg = US.apply_ssh_policy(restrict=not args.no_restrict)
+        print(msg)
+        return
+    print("未知 users 子命令。可用：list / create / delete / set-pass / perms / ssh-policy")
+
+
+def cmd_usb_mount(args):
+    _need_root()
+    try:
+        from .plugins.builtin.storage_share import mount as MNT
+    except Exception as e:
+        print(f"挂载模块不可用: {e}")
+        return
+    ok, msg = MNT.usb_mount_main(args.dev, force=args.force)
+    print(msg)
+
+
+def cmd_usb_umount(args):
+    _need_root()
+    try:
+        from .plugins.builtin.storage_share import mount as MNT
+    except Exception as e:
+        print(f"挂载模块不可用: {e}")
+        return
+    ok, msg = MNT.usb_umount_main(args.dev)
+    print(msg)
 
 
 def main(argv=None):
@@ -214,9 +282,41 @@ def main(argv=None):
     pd = p_plugin_sub.add_parser("disable", help="禁用插件（停服务）")
     pd.add_argument("name", help="插件名")
     pi = p_plugin_sub.add_parser("import", help="导入第三方 docker-compose（CasaOS/Umbrel/runtipi）为插件")
-    pi.add_argument("compose", help="docker-compose.yml 路径")
+    pi.add_argument("compose", nargs="?", default=None, help="本地 docker-compose.yml 路径")
     pi.add_argument("--metadata", default=None, help="可选的元数据 json（metadata.json / umbrel-app.yml / config.json）")
+    pi.add_argument("--url", default=None, help="compose 直链 URL（与本地路径二选一）")
+    pi.add_argument("--metadata-url", default=None, help="可选元数据 URL")
     pi.add_argument("--name", default=None, help="覆盖插件名（默认从元数据推断）")
+
+    p_users = sub.add_parser("users", help="管理系统账户（新建/删除/权限/SSH 策略）")
+    pu = p_users.add_subparsers(dest="users_cmd")
+    pu.add_parser("list", help="列出账户")
+    pc = pu.add_parser("create", help="新建账户")
+    pc.add_argument("name", help="账户名")
+    pc.add_argument("--password", required=True, help="登录密码")
+    pc.add_argument("--ssh", action="store_true", help="授予远程/SSH 访问（pb-ssh）")
+    pc.add_argument("--disk", action="store_true", help="授予磁盘读写（pb-disk）")
+    pc.add_argument("--admin", action="store_true", help="授予系统管理（pb-admin）")
+    pd = pu.add_parser("delete", help="删除账户（root 受保护）")
+    pd.add_argument("name", help="账户名")
+    pp = pu.add_parser("set-pass", help="重置账户密码")
+    pp.add_argument("name", help="账户名")
+    pp.add_argument("--password", required=True, help="新密码")
+    pp2 = pu.add_parser("perms", help="设置账户权限组（仅列出项会被授予）")
+    pp2.add_argument("name", help="账户名")
+    pp2.add_argument("--ssh", action="store_true", help="授予远程/SSH 访问")
+    pp2.add_argument("--disk", action="store_true", help="授予磁盘读写")
+    pp2.add_argument("--admin", action="store_true", help="授予系统管理")
+    ps = pu.add_parser("ssh-policy", help="应用 SSH 访问控制策略")
+    ps.add_argument("--no-restrict", action="store_true",
+                   help="只禁用 root 登录，不限制 AllowGroups（允许所有用户 SSH）")
+
+    p_um = sub.add_parser("usb-mount", help="挂载 USB 存储（udev 自动触发或手动调用）")
+    p_um.add_argument("dev", help="设备名（如 sdb1 或 /dev/sdb1）")
+    p_um.add_argument("--force", action="store_true",
+                     help="手动强制挂载（忽略 storage-share 的 auto_mount 开关）")
+    p_uu = sub.add_parser("usb-umount", help="卸载 USB 共享")
+    p_uu.add_argument("dev", help="设备名或挂载名（如 sdb1）")
 
     args = p.parse_args(argv)
     if not args.cmd:
@@ -239,6 +339,9 @@ def main(argv=None):
         "guard": cmd_guard,
         "version": cmd_version,
         "plugin": cmd_plugin,
+        "users": cmd_users,
+        "usb-mount": cmd_usb_mount,
+        "usb-umount": cmd_usb_umount,
     }[args.cmd](args)
 
 

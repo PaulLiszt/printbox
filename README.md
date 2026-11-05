@@ -99,6 +99,24 @@ sudo printbox restart                                # 重启服务让新插件�
 sudo printbox plugin disable storage-share           # 禁用 / disable
 ```
 
+### 为什么 list 默认只有两个？如何装第三方插件？ / Why only two by default? How to install third-party plugins?
+
+`plugin list` 列出的是「已发现的插件」= **内置插件**（随包发布，目前是 storage-share 与 homeassistant 两个）+ `/etc/printbox/plugins.d/` 下你**自己安装**的插件。
+
+`plugin list` shows *discovered* plugins = the **built-in** ones (shipped with the package: storage-share and homeassistant) **plus** anything you installed under `/etc/printbox/plugins.d/`.
+
+装第三方插件有三种方式 / Three ways to install a third-party plugin:
+
+1. **Web 界面（最简单）**：打开「插件」页 → 底部「安装第三方插件」表单，粘贴一个 `docker-compose.yml` 的**直链**（CasaOS / Umbrel / runtipi 商店的 compose 也行），点「导入插件」。导入后 `plugin list` 就会出现它。
+   **Web UI (easiest)**: open the Plugins page → bottom "Install a third-party plugin" form → paste a direct `docker-compose.yml` URL (CasaOS / Umbrel / runtipi store composes work too) → "Import plugin". It then appears in `plugin list`.
+2. **命令行**：`sudo printbox plugin import --url https://.../docker-compose.yml [--metadata-url https://.../metadata.json] [--name my-app]`。也可导入本地文件：`sudo printbox plugin import ./docker-compose.yml --metadata ./metadata.json`。
+   **CLI**: `sudo printbox plugin import --url https://.../docker-compose.yml [--metadata-url ...] [--name my-app]`. Local files also work: `sudo printbox plugin import ./docker-compose.yml --metadata ./metadata.json`.
+3. **手动放置**：把任意符合标准的插件目录直接放到 `/etc/printbox/plugins.d/<name>/`（含 `plugin.json`），重启服务即可被 `list` 发现。
+   **Manual**: drop a standards-compliant plugin directory into `/etc/printbox/plugins.d/<name>/` (with `plugin.json`); it shows up in `list` after a restart.
+
+无论哪种方式，导入后都要 `sudo printbox plugin enable <name> --yes` 并 `sudo printbox restart` 才会真正启用（启用前会列出所需权限要求你确认）。
+After import, run `sudo printbox plugin enable <name> --yes` and `sudo printbox restart` to actually enable it (required capabilities are listed for confirmation before enabling).
+
 ### 示例：把 USB 移动硬盘变成局域网共享 + 时间机器 / Example: turn a USB drive into a LAN share + Time Machine target
 
 1. 先把移动硬盘挂载到某个目录，例如 `/mnt/usbhdd`（PrintBox 不负责挂载，可用 `mount` 或 fstab）。

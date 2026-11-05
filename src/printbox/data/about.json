@@ -16,6 +16,11 @@
   ],
   "changelog": [
     {
+      "version": "0.2.57",
+      "title": "系统账户管理 + USB 存储自动挂载",
+      "body": "新增 /users 账户管理页：新建/删除/重置密码/锁定账户，并用 Linux 组（pb-ssh 远程、pb-disk 磁盘读写、pb-admin 系统管理）管理权限；root 受保护不可改。SSH 访问控制改写 sshd_config 带护栏（先备份、合并现有配置、把当前已登录用户纳入 pb-ssh 防锁门）。storage-share 插件升级：插入 USB 存储自动挂载（排除系统盘、归 pb-disk 组），SMB 共享强制单账户（force user）并以 pb-disk 组鉴权，可直接用系统已建账户访问磁盘。"
+    },
+    {
       "version": "0.2.56",
       "title": "README 新增插件章节；修正 storage-share 的 Samba include 写入位置",
       "body": "README 补上「插件 / Plugins」章节（SMB 示例 + 信任模型）；storage-share 插件的 smb.conf drop-in 的 include 指令改为写入 [global] 段内，并自动补 map to guest，确保共享与访客写真正生效。"

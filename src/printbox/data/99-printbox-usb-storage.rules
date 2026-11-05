@@ -1,0 +1,5 @@
+# PrintBox: USB 存储自动挂载（仅可移动/USB 块设备分区）
+# 插上 USB 硬盘/优盘时，udev 通过 systemd 拉起 printbox-usb-mount@.service，
+# 由 mount.py 完成挂载（并排除系统盘、归 pb-disk 组）。拔掉时触发卸载。
+ACTION=="add", SUBSYSTEM=="block", ENV{DEVTYPE}=="partition", ENV{ID_BUS}=="usb", TAG+="systemd", ENV{SYSTEMD_WANTS}+="printbox-usb-mount@%k.service"
+ACTION=="remove", SUBSYSTEM=="block", ENV{DEVTYPE}=="partition", ENV{ID_BUS}=="usb", TAG+="systemd", ENV{SYSTEMD_WANTS}+="printbox-usb-umount@%k.service"

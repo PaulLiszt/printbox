@@ -345,6 +345,18 @@ def _install_units():
     if os.path.exists(src):
         shutil.copy2(src, os.path.join("/etc/udev/rules.d", UDEV_RULE))
         C.log("init", "INFO", f"已安装 udev 规则: {UDEV_RULE}")
+    # USB 存储自动挂载：udev 规则 + systemd 模板单元（插入 USB 触发 printbox usb-mount）
+    for extra in ("99-printbox-usb-storage.rules",
+                  "printbox-usb-mount@.service",
+                  "printbox-usb-umount@.service"):
+        ep = os.path.join(DATA_DIR, extra)
+        if os.path.exists(ep):
+            if extra.endswith(".rules"):
+                shutil.copy2(ep, os.path.join("/etc/udev/rules.d", extra))
+                C.log("init", "INFO", f"已安装 udev 规则: {extra}")
+            else:
+                shutil.copy2(ep, os.path.join(dst, extra))
+                C.log("init", "INFO", f"已安装服务单元: {extra}")
     # 确保 /usr/local/bin/printbox 软链指向当前 venv 可执行文件。
     # 所有服务单元（hotplug/web/archive/mdns-*/alias）都写死 ExecStart=/usr/local/bin/printbox，
     # 若该软链缺失或指向旧版本，热插拔/服务会跑旧代码（历史上因此重建短名幽灵队列、双显不收敛）。
@@ -1071,6 +1083,20 @@ def _ensure_locale_and_fonts(install_fonts=True):
             C.log("init", "WARN", f"安装中文字体失败（可忽略，SSH 客户端请用中文字体）: {e}")
 
 
+def _ensure_user_groups():
+    """创建 PrintBox 权限组（pb-ssh / pb-disk / pb-admin），并把当前会话/特权用户纳入 pb-ssh，
+    避免后续开启 SSH 限制时把自己锁在门外。失败仅记录，不阻断安装。"""
+    try:
+        from . import users as US
+        US.ensure_groups()
+        added = US.add_sessions_to_ssh_group()
+        if added:
+            C.log("init", "INFO",
+                  f"已将现有会话用户纳入 pb-ssh 防锁门: {', '.join(added)}")
+    except Exception as e:
+        C.log("init", "WARN", f"创建权限组失败（可忽略）: {e}")
+
+
 def provision(skip_apt=False):
     C.ensure_dirs()
     # 先固定网络：写入 NM managed=false 配置，避免稍后安装 NM 时它接管网卡导致 IP 翻转
@@ -1103,6 +1129,7 @@ def provision(skip_apt=False):
 
     print("[3/5] 安装并启用 systemd 服务 + 打印机热插拔规则...")
     _install_units()
+    _ensure_user_groups()  # 建 pb-ssh/pb-disk/pb-admin，把现有会话用户纳入 pb-ssh 防锁门
     _run(["systemctl", "daemon-reload"])
 
     print("[4/5] 稳定 CUPS 并探测打印机并自动安装驱动...")

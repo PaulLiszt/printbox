@@ -120,6 +120,46 @@ h4 = FakeHandler()
 missed = MG.dispatch_get(h4, "/plugin/does-not-exist", "zh")
 check("未注册路由不命中", missed is False and not h4.sent)
 
+# 6) 第三方导入：本地 compose + 落盘 + URL 导入（mock 下载）
+import shutil as _shutil
+with tempfile.TemporaryDirectory() as d:
+    # 落盘目标指向临时目录，避免污染真实 /etc/printbox/plugins.d
+    orig_d = MG.PLUGINS_D
+    MG.PLUGINS_D = os.path.join(d, "plugins.d")
+    try:
+        comp = os.path.join(d, "docker-compose.yml")
+        open(comp, "w").write(casaos_compose)
+        meta = os.path.join(d, "metadata.json")
+        open(meta, "w").write(json.dumps(casaos_meta))
+        pname, dest = MG.import_plugin(comp, meta, name="aria2-test")
+        check("import_plugin 落盘 plugin.json",
+              os.path.exists(os.path.join(dest, "plugin.json")))
+        check("import_plugin 复制 compose",
+              os.path.exists(os.path.join(dest, "docker-compose.yml")))
+        man = json.load(open(os.path.join(dest, "plugin.json")))
+        check("import_plugin 记录 compose 文件名", man["compose"] == "docker-compose.yml")
+        check("import_plugin 返回归一化名", pname == "aria2-test")
+
+        # URL 导入：mock _download 把本地 fixture 当远程写入
+        fixture_comp = os.path.join(d, "remote-compose.yml")
+        open(fixture_comp, "w").write(casaos_compose)
+        fixture_meta = os.path.join(d, "remote-meta.json")
+        open(fixture_meta, "w").write(json.dumps(casaos_meta))
+
+        def fake_dl(url, dest_path, timeout=30):
+            if url.endswith("meta"):
+                _shutil.copy(fixture_meta, dest_path)
+            else:
+                _shutil.copy(fixture_comp, dest_path)
+        MG._download = fake_dl
+        pname2, dest2 = MG.import_plugin_from_url("http://x/docker-compose.yml",
+                                                  "http://x/metadata.json", name="aria2-url")
+        check("import_plugin_from_url 落盘",
+              os.path.exists(os.path.join(dest2, "plugin.json")))
+        check("import_plugin_from_url 返回名", pname2 == "aria2-url")
+    finally:
+        MG.PLUGINS_D = orig_d
+
 # 汇总
 failed = [n for n, ok in PASS if not ok]
 print("\n==== 结果 ====")

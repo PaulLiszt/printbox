@@ -94,7 +94,7 @@ def render(tpl_name, tokens, lang=I18N.DEFAULT_LANG):
     frag = token_replace(frag, tokens)
     active = tokens.get("active", "")
     nav = {k: ' class="active"' if active == k else "" for k in
-           ("home", "printers", "archive", "system", "settings", "about", "plugins")}
+           ("home", "printers", "archive", "system", "settings", "about", "users", "plugins")}
     page = PAGE.replace("[[TITLE]]", tokens.get("title", "PrintBox")) \
                .replace("[[BODY]]", frag) \
                .replace("[[SELF_URL]]", self_url()) \
@@ -104,6 +104,7 @@ def render(tpl_name, tokens, lang=I18N.DEFAULT_LANG):
                .replace("[[NAV_SYSTEM]]", nav["system"]) \
                .replace("[[NAV_SETTINGS]]", nav["settings"]) \
                .replace("[[NAV_ABOUT]]", nav["about"]) \
+               .replace("[[NAV_USERS]]", nav["users"]) \
                .replace("[[NAV_PLUGINS]]", nav["plugins"])
     # 多语言：先解析模板里的 [[i18n:KEY]]（长段落），再短语替换其余中文标签
     page = I18N.render_i18n(page, lang)
@@ -118,7 +119,7 @@ def render_plugin_page(tpl_text, tokens, lang=I18N.DEFAULT_LANG):
     frag = token_replace(tpl_text, tokens)
     active = tokens.get("active", "")
     nav = {k: ' class="active"' if active == k else "" for k in
-           ("home", "printers", "archive", "system", "settings", "about", "plugins")}
+           ("home", "printers", "archive", "system", "settings", "about", "users", "plugins")}
     page = PAGE.replace("[[TITLE]]", tokens.get("title", "PrintBox")) \
                .replace("[[BODY]]", frag) \
                .replace("[[SELF_URL]]", self_url()) \
@@ -128,6 +129,7 @@ def render_plugin_page(tpl_text, tokens, lang=I18N.DEFAULT_LANG):
                .replace("[[NAV_SYSTEM]]", nav["system"]) \
                .replace("[[NAV_SETTINGS]]", nav["settings"]) \
                .replace("[[NAV_ABOUT]]", nav["about"]) \
+               .replace("[[NAV_USERS]]", nav["users"]) \
                .replace("[[NAV_PLUGINS]]", nav["plugins"])
     page = I18N.render_i18n(page, lang)
     if lang != I18N.DEFAULT_LANG:
@@ -352,6 +354,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._redirect("/system")
         if path == "/about":
             return self._send(200, render("about.html", self.about_tokens(lang), lang))
+        if path == "/users":
+            from printbox import webapp as _wa
+            body = self.users_tokens(lang)
+            return self._send(200, _wa.render_plugin_page(
+                body, {"title": I18N.t("users_title", lang), "active": "users"}, lang))
         if path == "/archive/file":
             return self.serve_archive_file()
         # 旧路径重定向到合并后的对应页面，兼容书签
@@ -565,6 +572,14 @@ class Handler(BaseHTTPRequestHandler):
                 C.save_config(cfg)
             # 设置与日志已并入“系统”页，保存后跳回系统页
             return self._redirect("/system")
+
+        # ---- 系统账户管理页（新建/删除/改密码/权限 + SSH 策略）----
+        if path == "/users":
+            notice = self.handle_users_post(get, form, keys)
+            from printbox import webapp as _wa
+            body = self.users_tokens(lang)
+            return self._send(200, _wa.render_plugin_page(
+                body, {"title": I18N.t("users_title", lang), "active": "users"}, lang))
 
         # ---- 旧 /action 兼容 ----
         if path == "/action":
@@ -1440,6 +1455,141 @@ class Handler(BaseHTTPRequestHandler):
         }
 
 
+    # ---------- 系统账户管理 ----------
+    def users_tokens(self, lang=I18N.DEFAULT_LANG):
+        try:
+            from printbox import users as US
+        except Exception:
+            US = None
+        try:
+            rows = US.list_managed_users() if US else []
+        except Exception:
+            rows = []
+
+        def _g(key):
+            return I18N.t(key, lang)
+
+        # 账户表
+        if rows:
+            trs = []
+            for r in rows:
+                protected = r["protected"]
+                perms = r.get("perms", {})
+                perm_badges = " ".join(
+                    f'<span class="badge ok">{html.escape(US.GROUP_DESC[lang][g])}</span>'
+                    for g in US.GROUPS if perms.get(g))
+                if not perm_badges:
+                    perm_badges = '<span class="muted">—</span>'
+                if protected:
+                    actions = ('<span class="badge warn">' + _g("users_root_protected") + '</span>')
+                else:
+                    del_f = ('<form method="post" action="/users" style="display:inline" '
+                             'onsubmit="return confirm(\'' +
+                             _g("users_confirm_del").replace("'", "\\'") +
+                             '\')"><input type="hidden" name="act" value="delete_user">'
+                             f'<input type="hidden" name="name" value="{html.escape(r["name"])}">'
+                             '<button class="btn tiny danger" type="submit">' +
+                             _g("users_del_btn") + '</button></form>')
+                    lock_f = ('<form method="post" action="/users" style="display:inline">'
+                              '<input type="hidden" name="act" value="toggle_lock">'
+                              f'<input type="hidden" name="name" value="{html.escape(r["name"])}">'
+                              f'<input type="hidden" name="lock" value="{"no" if r.get("locked") else "yes"}">'
+                              '<button class="btn tiny" type="submit">' +
+                              (I18N.t("users_unlock_btn", lang) if r.get("locked") else I18N.t("users_lock_btn", lang)) +
+                              '</button></form>')
+                    pw_f = ('<form method="post" action="/users" style="display:inline">'
+                            '<input type="hidden" name="act" value="set_pass">'
+                            f'<input type="hidden" name="name" value="{html.escape(r["name"])}">'
+                            '<input type="password" name="password" placeholder="' +
+                            _g("users_password_label") + '" size="12">'
+                            '<button class="btn tiny" type="submit">' +
+                            _g("users_setpass_label") + '</button></form>')
+                    actions = del_f + " " + lock_f + " " + pw_f
+                trs.append(
+                    f"<tr><td>{html.escape(r['name'])}</td>"
+                    f"<td>{perm_badges}</td>"
+                    f"<td class='mono'>{html.escape(r['shell'])}</td>"
+                    f"<td style='white-space:nowrap'>{actions}</td></tr>")
+            users_table = ("<table><tr><th>" + _g("users_col_name") +
+                           "</th><th>" + _g("users_col_perms") +
+                           "</th><th>" + _g("users_col_shell") +
+                           "</th><th>" + _g("users_col_action") + "</th>" +
+                           "".join(trs) + "</table>")
+        else:
+            users_table = '<p class="muted">' + _g("plugins_none") + '</p>'
+
+        # 新建账户表单
+        create_html = (
+            '<form method="post" action="/users">'
+            '<input type="hidden" name="act" value="create_user">'
+            '<div class="row">'
+            f'<label>{_g("users_username_label")}'
+            f'<input type="text" name="name" placeholder="{_g("users_username_ph")}" required></label>'
+            f'<label>{_g("users_password_label")}'
+            f'<input type="password" name="password" placeholder="{_g("users_password_ph")}" required></label>'
+            '</div>'
+            '<div class="row">'
+            f'<label class="chk"><input type="checkbox" name="perm_pb_ssh"> {_g("users_perm_ssh")}</label>'
+            f'<label class="chk"><input type="checkbox" name="perm_pb_disk"> {_g("users_perm_disk")}</label>'
+            f'<label class="chk"><input type="checkbox" name="perm_pb_admin"> {_g("users_perm_admin")}</label>'
+            '</div>'
+            f'<p><button class="btn" type="submit">{_g("users_create_btn")}</button></p>'
+            '</form>')
+
+        # SSH 访问控制
+        ssh_status = US.ssh_policy_status() if US else {"restrict": False}
+        restrict = bool(ssh_status.get("restrict"))
+        ssh_html = (
+            '<div class="card">'
+            f'<h2>{_g("users_ssh_title")}</h2>'
+            f'<p class="muted">{_g("users_ssh_desc")}</p>'
+            '<form method="post" action="/users">'
+            '<input type="hidden" name="act" value="ssh_apply">'
+            f'<label class="chk"><input type="checkbox" name="restrict" {"checked" if restrict else ""}>'
+            f' {_g("users_ssh_enable")}</label>'
+            f'<p><button class="btn" type="submit">{_g("users_ssh_apply")}</button></p>'
+            '</form></div>')
+
+        body = (
+            f'<h2>{_g("users_title")}</h2>'
+            f'<p class="muted">{_g("users_desc")}</p>'
+            '<div class="card">' + users_table + '</div>'
+            '<div class="card"><h2>' + _g("users_create_title") + '</h2>' + create_html + '</div>'
+            + ssh_html)
+        return body
+
+    def handle_users_post(self, get, form, keys):
+        try:
+            from printbox import users as US
+        except Exception:
+            return '<p class="badge err">账户模块不可用</p>'
+        act = get("act")
+        name = get("name")
+        ok, msg = True, ""
+        if act == "create_user":
+            perms = {
+                "pb-ssh": "perm_pb_ssh" in form,
+                "pb-disk": "perm_pb_disk" in form,
+                "pb-admin": "perm_pb_admin" in form,
+            }
+            ok, msg = US.create_user(get("name"), get("password"), perms)
+        elif act == "delete_user":
+            if name in US.PROTECTED_USERS:
+                ok, msg = False, "root 受保护，不可删除"
+            else:
+                ok, msg = US.delete_user(name)
+        elif act == "set_pass":
+            ok, msg = US.set_password(name, get("password"))
+        elif act == "toggle_lock":
+            lock = get("lock") == "yes"
+            ok, msg = (US.lock_user(name) if lock else US.unlock_user(name))
+        elif act == "ssh_apply":
+            ok, msg = US.apply_ssh_policy(restrict=("restrict" in form))
+        else:
+            ok, msg = False, "未知操作"
+        cls = "ok" if ok else "err"
+        return f'<p class="badge {cls}">{html.escape(msg)}</p>'
+
     # ---------- 合并页：概览（状态 + 打印任务 + 发现）----------
     def overview_tokens(self, notice=""):
         s = status_tokens()
@@ -1531,6 +1681,7 @@ PAGE = """<!DOCTYPE html>
   <a href="/printers"[[NAV_PRINTERS]]>打印机</a>
   <a href="/archive"[[NAV_ARCHIVE]]>历史</a>
   <a href="/system"[[NAV_SYSTEM]]>系统</a>
+  <a href="/users"[[NAV_USERS]]>账户</a>
   <a href="/about"[[NAV_ABOUT]]>关于</a>
   <a href="/plugins"[[NAV_PLUGINS]]>插件</a>
 </nav>

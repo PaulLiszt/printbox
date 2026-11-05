@@ -1,0 +1,9 @@
+[Unit]
+Description=PrintBox 卸载 USB 存储 %i
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/printbox usb-umount %i
+
+[Install]
+WantedBy=multi-user.target

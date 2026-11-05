@@ -16,6 +16,11 @@
   ],
   "changelog": [
     {
+      "version": "0.2.57",
+      "title": "System account management + USB auto-mount",
+      "body": "New /users account management page: create/delete/reset-password/lock accounts, with permissions via Linux groups (pb-ssh for remote, pb-disk for disk, pb-admin for admin); root is protected. SSH access control rewrites sshd_config with guardrails (backup first, merge existing config, add current sessions to pb-ssh to avoid lockout). storage-share plugin upgraded: USB storage auto-mounts on plug-in (excludes the system disk, owned by pb-disk), and the SMB share forces a single account (force user) authorized by the pb-disk group so existing system accounts can access the disk."
+    },
+    {
       "version": "0.2.56",
       "title": "README now documents plugins; fix storage-share Samba include placement",
       "body": "README gains a Plugins section (SMB example + trust model). The storage-share plugin now writes its smb.conf drop-in `include` directive inside the [global] section and auto-adds `map to guest`, so the share and guest writes actually take effect."
