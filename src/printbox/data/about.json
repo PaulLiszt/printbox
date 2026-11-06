@@ -16,6 +16,11 @@
   ],
   "changelog": [
     {
+      "version": "0.2.62",
+      "title": "修复 storage-share 页面升级后显示裸 i18n 键名 + 修正挂载提示路径",
+      "body": "两处修正：(1) 升级到含「隐藏小主机自身磁盘」开关的版本后，若未重启 Web 服务，运行中的 printbox-web 进程仍持有升级前内存里的旧 i18n 表，导致页面把新加的两个键（storage_hide_host_label / storage_hide_host_hint）原样显示为裸键名。升级到 0.2.62 后执行 `printbox restart` 即可重新加载正确的 i18n（已隐藏的小主机磁盘不受影响）。(2) 修正「可挂载的 USB 存储」提示文案：原文写「手动挂载到 /mnt/printbox」，实际挂载点早已改为共享目录 /srv/printbox-share（已挂载区显示的 /srv/printbox-share/<卷标> 即证明）；同步将底层兜底常量 MOUNT_BASE 由 /mnt/printbox 对齐为 /srv/printbox-share，避免 share_path 配置缺失时把 U 盘挂到共享目录之外形成孤儿挂载。"
+    },
+    {
       "version": "0.2.61",
       "title": "隐藏小主机自身磁盘：默认关闭 Samba 家目录共享（避免误删系统文件）",
       "body": "新增能力：storage-share 插件现在可隐藏小主机自身的硬盘内容。Samba 的 [homes] 段会在账户登录后自动把 /home/<用户> 暴露为同名共享（如 tempest32），即使设 browseable=no，Windows 仍会主动显示该家目录共享，极易误删系统文件。现插件新增「隐藏小主机自身磁盘」开关（hide_host_disk，默认开启），安装/保存时在主 smb.conf 的 [homes] 段写入 available = no，彻底禁用该共享，仅保留移动硬盘的 PrintBoxShare。开关可在 WebUI「插件→存储共享」页勾选/取消，且幂等、可重复执行。升级后重跑 plugin enable storage-share --yes（或保存一次配置）即生效；想立即生效也可直接在主 smb.conf 的 [homes] 段加 available = no 后 systemctl restart smbd nmbd。"

@@ -18,7 +18,7 @@ try:
 except Exception:  # 独立单元测试时 printbox 可能不在 path
     C = None
 
-MOUNT_BASE = "/mnt/printbox"
+MOUNT_BASE = "/srv/printbox-share"
 DISK_GROUP = "pb-disk"
 
 

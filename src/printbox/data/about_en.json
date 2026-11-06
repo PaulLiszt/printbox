@@ -16,6 +16,11 @@
   ],
   "changelog": [
     {
+      "version": "0.2.62",
+      "title": "Fix bare i18n keys on storage-share page after upgrade + correct mount-path hint",
+      "body": "Two fixes: (1) After upgrading to a version with the 'Hide the host's own disk' toggle, if the web service was not restarted, the running printbox-web process still held the old in-memory i18n table from before the upgrade and rendered the two new keys (storage_hide_host_label / storage_hide_host_hint) as raw key names. Run `printbox restart` after upgrading to 0.2.62 to reload the correct i18n (the already-hidden host disk is unaffected). (2) Corrected the 'Mountable USB storage' hint: it said 'mount it under /mnt/printbox', but the real mount point was already changed to the shared directory /srv/printbox-share (the mounted section shows /srv/printbox-share/<label>, proving it). Also aligned the fallback constant MOUNT_BASE from /mnt/printbox to /srv/printbox-share so a missing share_path config no longer mounts a USB drive outside the share (an orphan mount)."
+    },
+    {
       "version": "0.2.61",
       "title": "Hide the host's own disk: disable Samba home-directory share by default (avoid accidental system-file deletion)",
       "body": "New capability: the storage-share plugin can now hide the box's own disk. Samba's [homes] section auto-exposes /home/<user> as a same-named share (e.g. tempest32) after login; even with browseable=no, Windows still shows this home share, risking accidental deletion of system files. The plugin adds a 'Hide the host's own disk' toggle (hide_host_disk, ON by default); on install/save it writes `available = no` into the [homes] section of the main smb.conf, fully disabling that share and leaving only the USB PrintBoxShare. The toggle can be checked/unchecked on the WebUI Plugins → Storage Share page, and is idempotent and repeatable. After upgrading, re-run `plugin enable storage-share --yes` (or save the config once) to apply; to take effect immediately you can also add `available = no` under [homes] in the main smb.conf and run `systemctl restart smbd nmbd`."

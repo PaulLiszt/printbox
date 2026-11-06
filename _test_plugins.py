@@ -262,6 +262,18 @@ def test_hide_host_disk():
           and "[homes]" not in open(main2).read())
 test_hide_host_disk()
 
+# ---- 0.2.62：i18n 文案修正回归 —— 隐藏开关键必须可解析，且挂载提示不再指向旧路径 /mnt/printbox ----
+def test_i18n_storage_text():
+    from printbox import i18n as I
+    lbl = I.t("storage_hide_host_label")
+    hint = I.t("storage_hide_host_hint")
+    check("storage_hide_host_label 已翻译（非裸键）", lbl != "storage_hide_host_label" and "隐藏" in lbl)
+    check("storage_hide_host_hint 已翻译（非裸键）", "homes" in hint.lower() or "家目录" in hint)
+    usb = I.t("storage_usb_hint")
+    check("storage_usb_hint 不再含旧路径 /mnt/printbox", "/mnt/printbox" not in usb)
+    check("storage_usb_hint 指向真实挂载点 /srv/printbox-share", "/srv/printbox-share" in usb)
+test_i18n_storage_text()
+
 # 汇总
 failed = [n for n, ok in PASS if not ok]
 print("\n==== 结果 ====")
